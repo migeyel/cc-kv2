@@ -9,6 +9,9 @@
  * appended by keeping a file handle open.
  */
 export interface IPage {
+    /** The preferential maximum size for this page. */
+    readonly pageSize: number;
+
     /** Whether the page exists or not. */
     exists(): boolean;
 
@@ -50,7 +53,10 @@ export interface IPage {
  * A generic store for disk pages.
  */
 export interface IPageStore<P extends IPage> {
-    /** Fetches a page from the store. */
+    /** The preferential maximum page size for pages in the store. */
+    readonly pageSize: number;
+
+    /** Specifies a page in the store. */
     getPage(pageNum: number): P;
 }
 
@@ -58,5 +64,9 @@ export interface IPageStore<P extends IPage> {
  * A store collection unites several page stores under string namespaces.
  */
 export interface IStoreCollection<P extends IPage, S extends IPageStore<P>> {
+    /** The preferential maximum page size for pages in the collection. */
+    readonly pageSize: number;
+
+    /** Specifies a store in the collection. */
     getStore(namespace: string): S;
 }

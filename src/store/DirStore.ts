@@ -24,13 +24,16 @@ export class DirPageDirectory implements IStoreCollection<
     DirPage,
     DirPageStore
 > {
+    public readonly pageSize: number;
+
     /** The directory path. */
     private dirPath: string;
 
     /** The modifications subdir path. */
     private modPath: string;
 
-    public constructor(dir: string) {
+    public constructor(dir: string, pageSize: number) {
+        this.pageSize = pageSize;
         this.dirPath = dir;
         this.modPath = fs.combine(dir, MOD_SUBDIR);
 
@@ -59,28 +62,48 @@ export class DirPageDirectory implements IStoreCollection<
     }
 
     public getStore(namespace: string): DirPageStore {
-        return new DirPageStore(this.dirPath, this.modPath, namespace);
+        return new DirPageStore(
+            this.pageSize,
+            this.dirPath,
+            this.modPath,
+            namespace,
+        );
     }
 }
 
 class DirPageStore implements IPageStore<DirPage> {
+    public readonly pageSize: number;
+
     /** The path prefix for files in the store. */
     private filePrefix: string;
 
     /** The path prefix for modification in the store. */
     private modPrefix: string;
 
-    public constructor(dirPath: string, modPath: string, namespace: string) {
+    public constructor(
+        pageSize: number,
+        dirPath: string,
+        modPath: string,
+        namespace: string,
+    ) {
+        this.pageSize = pageSize;
         this.filePrefix = fs.combine(dirPath, namespace + "_");
         this.modPrefix = fs.combine(modPath, namespace + "_");
     }
 
     public getPage(pageNum: number): DirPage {
-        return new DirPage(this.filePrefix, this.modPrefix, pageNum);
+        return new DirPage(
+            this.pageSize,
+            this.filePrefix,
+            this.modPrefix,
+            pageNum,
+        );
     }
 }
 
 class DirPage implements IPage {
+    public readonly pageSize: number;
+
     /** The file path. */
     private filePath: string;
 
@@ -90,7 +113,13 @@ class DirPage implements IPage {
     /** The currently open handle. */
     private handle: FileHandle | undefined;
 
-    public constructor(filePrefix: string, modPrefix: string, pageNum: number) {
+    public constructor(
+        pageSize: number,
+        filePrefix: string,
+        modPrefix: string,
+        pageNum: number,
+    ) {
+        this.pageSize = pageSize;
         this.filePath = filePrefix + tostring(pageNum);
         this.fileModPrefix = modPrefix + tostring(pageNum);
     }
