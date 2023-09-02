@@ -1,4 +1,11 @@
-import { IPage, IStoreCollection, IPageStore } from "./IPageStore";
+import {
+    IPage,
+    IStoreCollection,
+    IPageStore,
+    ISerializable,
+    Deserializer,
+    IAppendableWith,
+} from "./IPageStore";
 
 /** The subdirectory for storing store modifications. */
 const MOD_SUBDIR = "_";
@@ -20,11 +27,19 @@ function matchNew(modfile: string): string | undefined {
 /**
  * A simple store collection, stored together in a single filesystem directory.
  */
-export class DirPageDirectory implements IStoreCollection<
-    DirPage,
-    DirPageStore
+export class DirPageDirectory<
+    T extends IAppendableWith<A>,
+    A extends ISerializable
+> implements IStoreCollection<
+    T,
+    A,
+    DirPage<T, A>,
+    DirPageStore<T, A>
 > {
     public readonly pageSize: number;
+
+    /** Deserializer for the implemented value. */
+    private des: Deserializer<T>;
 
     /** The directory path. */
     private dirPath: string;
@@ -32,7 +47,8 @@ export class DirPageDirectory implements IStoreCollection<
     /** The modifications subdir path. */
     private modPath: string;
 
-    public constructor(dir: string, pageSize: number) {
+    public constructor(des: Deserializer<T>, dir: string, pageSize: number) {
+        this.des = des;
         this.pageSize = pageSize;
         this.dirPath = dir;
         this.modPath = fs.combine(dir, MOD_SUBDIR);
@@ -61,8 +77,9 @@ export class DirPageDirectory implements IStoreCollection<
         }
     }
 
-    public getStore(namespace: string): DirPageStore {
+    public getStore(namespace: string): DirPageStore<T, A> {
         return new DirPageStore(
+            this.des,
             this.pageSize,
             this.dirPath,
             this.modPath,
@@ -71,7 +88,16 @@ export class DirPageDirectory implements IStoreCollection<
     }
 }
 
-class DirPageStore implements IPageStore<DirPage> {
+class DirPageStore<
+    T extends IAppendableWith<A>,
+    A extends ISerializable
+> implements IPageStore<
+    T,
+    A,
+    DirPage<T, A>
+> {
+    private des: Deserializer<T>;
+
     public readonly pageSize: number;
 
     /** The path prefix for files in the store. */
@@ -81,18 +107,21 @@ class DirPageStore implements IPageStore<DirPage> {
     private modPrefix: string;
 
     public constructor(
+        des: Deserializer<T>,
         pageSize: number,
         dirPath: string,
         modPath: string,
         namespace: string,
     ) {
+        this.des = des;
         this.pageSize = pageSize;
         this.filePrefix = fs.combine(dirPath, namespace + "_");
         this.modPrefix = fs.combine(modPath, namespace + "_");
     }
 
-    public getPage(pageNum: number): DirPage {
+    public getPage(pageNum: number): DirPage<T, A> {
         return new DirPage(
+            this.des,
             this.pageSize,
             this.filePrefix,
             this.modPrefix,
@@ -101,7 +130,10 @@ class DirPageStore implements IPageStore<DirPage> {
     }
 }
 
-class DirPage implements IPage {
+class DirPage<T extends IAppendableWith<A>, A extends ISerializable> implements
+IPage<T, A> {
+    private des: Deserializer<T>;
+
     public readonly pageSize: number;
 
     /** The file path. */
@@ -114,11 +146,13 @@ class DirPage implements IPage {
     private handle: FileHandle | undefined;
 
     public constructor(
+        des: Deserializer<T>,
         pageSize: number,
         filePrefix: string,
         modPrefix: string,
         pageNum: number,
     ) {
+        this.des = des;
         this.pageSize = pageSize;
         this.filePath = filePrefix + tostring(pageNum);
         this.fileModPrefix = modPrefix + tostring(pageNum);
@@ -155,7 +189,7 @@ class DirPage implements IPage {
         fs.delete(this.filePath);
     }
 
-    public read(): string | undefined {
+    public read(): T | undefined {
         const [file, err] = fs.open(this.filePath, "rb");
         if (!file) {
             if (fs.exists(this.filePath)) {
@@ -166,15 +200,15 @@ class DirPage implements IPage {
         }
         const out = file.readAll() || "";
         file.close();
-        return out;
+        return this.des.deserialize(out);
     }
 
-    public write(data: string): void {
+    public write(data: T): void {
         // Mark the data as new so an incomplete write ignores it.
         const newPath = this.fileModPrefix + NEW_SUFFIX;
         const [newFile, err] = fs.open(newPath, "wb");
         if (!newFile) { throw err; }
-        if (data) { newFile.write(data); }
+        if (data) { newFile.write(data.serialize()); }
         newFile.close();
 
         // Atomically move to the regular path.
@@ -182,8 +216,8 @@ class DirPage implements IPage {
         fs.move(newPath, this.filePath);
     }
 
-    public append(data: string): void {
-        this.handle!.write(data);
+    public append(data: A): void {
+        this.handle!.write(data.serialize());
     }
 
     public canAppend(): boolean {
