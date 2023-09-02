@@ -104,6 +104,8 @@ class DirPageStore implements IPageStore<DirPage> {
 class DirPage implements IPage {
     public readonly pageSize: number;
 
+    public readonly pageNum: number;
+
     /** The file path. */
     private filePath: string;
 
@@ -119,6 +121,7 @@ class DirPage implements IPage {
         modPrefix: string,
         pageNum: number,
     ) {
+        this.pageNum = pageNum;
         this.pageSize = pageSize;
         this.filePath = filePrefix + tostring(pageNum);
         this.fileModPrefix = modPrefix + tostring(pageNum);

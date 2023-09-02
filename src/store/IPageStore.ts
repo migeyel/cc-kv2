@@ -12,6 +12,9 @@ export interface IPage {
     /** The preferential maximum size for this page. */
     readonly pageSize: number;
 
+    /** The page number for this page. */
+    readonly pageNum: number;
+
     /** Whether the page exists or not. */
     exists(): boolean;
 
