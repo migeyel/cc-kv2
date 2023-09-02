@@ -1,20 +1,3 @@
-/** A serializable object. */
-export interface ISerializable {
-    serialize(): string,
-}
-
-/** A deserializer for an object. */
-export type Deserializer<T extends ISerializable> = {
-    deserialize(this: void, serialized: string): T,
-}
-
-/** A type that can be updated by appending to serialized data. */
-export interface IAppendableWith<A extends ISerializable>
-    extends ISerializable
-{
-    appendUpdate(extra: A): void,
-}
-
 /**
  * A (possibly non-existent) page in a page store.
  *
@@ -25,7 +8,7 @@ export interface IAppendableWith<A extends ISerializable>
  * Pages tend to map 1:1 with a file in the disk and can be very efficiently
  * appended by keeping a file handle open.
  */
-export interface IPage<T extends IAppendableWith<A>, A extends ISerializable> {
+export interface IPage {
     /** The preferential maximum size for this page. */
     readonly pageSize: number;
 
@@ -33,7 +16,7 @@ export interface IPage<T extends IAppendableWith<A>, A extends ISerializable> {
     exists(): boolean;
 
     /** Creates the page in the store. */
-    create(initialData?: T): void;
+    create(initialData?: string): void;
 
     /** Creates the page and opens for append. */
     createOpen(): void;
@@ -42,13 +25,13 @@ export interface IPage<T extends IAppendableWith<A>, A extends ISerializable> {
     delete(): void;
 
     /** Reads from the page. Returns nothing if it doesn't exist. */
-    read(): T | undefined;
+    read(): string | undefined;
 
     /** Writes to the page. */
-    write(data: T): void;
+    write(data: string): void;
 
     /** Appends data to the page. */
-    append(extra: A): void;
+    append(extra: string): void;
 
     /** Whether this page is open for appending. */
     canAppend(): boolean;
@@ -69,11 +52,7 @@ export interface IPage<T extends IAppendableWith<A>, A extends ISerializable> {
 /**
  * A generic store for disk pages.
  */
-export interface IPageStore<
-    T extends IAppendableWith<A>,
-    A extends ISerializable,
-    P extends IPage<T, A>
-> {
+export interface IPageStore<P extends IPage> {
     /** The preferential maximum page size for pages in the store. */
     readonly pageSize: number;
 
@@ -84,12 +63,7 @@ export interface IPageStore<
 /**
  * A store collection unites several page stores under string namespaces.
  */
-export interface IStoreCollection<
-    T extends IAppendableWith<A>,
-    A extends ISerializable,
-    P extends IPage<T, A>,
-    S extends IPageStore<T, A, P>
-> {
+export interface IStoreCollection<P extends IPage, S extends IPageStore<P>> {
     /** The preferential maximum page size for pages in the collection. */
     readonly pageSize: number;
 
