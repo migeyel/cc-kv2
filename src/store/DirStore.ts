@@ -27,7 +27,7 @@ function matchNew(modfile: string): string | undefined {
 /**
  * A simple store collection, stored together in a single filesystem directory.
  */
-export class DirPageDirectory<
+export class DirStoreCollection<
     T extends IAppendableWith<A>,
     A extends ISerializable
 > implements IStoreCollection<
@@ -162,13 +162,8 @@ IPage<T, A> {
         return fs.exists(this.filePath);
     }
 
-    public create(initialData: string): void {
-        if (initialData.length == 0) {
-            // There's no danger about incomplete writes, so write directly.
-            const [file, err] = fs.open(this.filePath, "wb");
-            if (!file) { throw err; }
-            file.close();
-        } else {
+    public create(initialData?: T): void {
+        if (initialData) {
             // Mark the data as del so an incomplete write deletes it.
             const delPath = this.fileModPrefix + DEL_SUFFIX;
             const [delFile, err] = fs.open(delPath, "wb");
@@ -178,6 +173,11 @@ IPage<T, A> {
 
             // Atomic move to the regular path.
             fs.move(delPath, this.filePath);
+        } else {
+            // There's no danger about incomplete writes, so write directly.
+            const [file, err] = fs.open(this.filePath, "wb");
+            if (!file) { throw err; }
+            file.close();
         }
     }
 

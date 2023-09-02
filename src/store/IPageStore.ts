@@ -12,7 +12,7 @@ export type Deserializer<T extends ISerializable> = {
 export interface IAppendableWith<A extends ISerializable>
     extends ISerializable
 {
-    appendUpdate(extra: A): this,
+    appendUpdate(extra: A): void,
 }
 
 /**
@@ -33,7 +33,7 @@ export interface IPage<T extends IAppendableWith<A>, A extends ISerializable> {
     exists(): boolean;
 
     /** Creates the page in the store. */
-    create(initialData: string): void;
+    create(initialData?: T): void;
 
     /** Creates the page and opens for append. */
     createOpen(): void;
