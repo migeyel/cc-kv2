@@ -34,7 +34,6 @@ export type Uuid = string;
 
 export type SubMeta = {
     indexNumber: number,
-    allocatedQuota: number,
     numAllocated: number,
 }
 

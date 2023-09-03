@@ -4,6 +4,11 @@ import { IPage, IPageStore, IStoreCollection } from "../IPageStore";
 import { IndexCollection, IndexPage } from "./Index";
 import { IndexMetaPage, ProcedureType, SubMeta, Uuid } from "./Meta";
 
+type SubStore = {
+    collection: IStoreCollection<IPage, IPageStore<IPage>>,
+    quota: number,
+};
+
 /** A store collection that multiplexes store collections through an index. */
 export class IndexedCollection implements IStoreCollection<
     IndexedPage,
@@ -20,8 +25,8 @@ export class IndexedCollection implements IStoreCollection<
         pageSize: number,
         cacheSize: number,
         storedMetaPage: IPage,
-        indexStore: IStoreCollection<IPage, IPageStore<IPage>>,
-        subStores: LuaMap<Uuid, IStoreCollection<IPage, IPageStore<IPage>>>,
+        indexCollection: IStoreCollection<IPage, IPageStore<IPage>>,
+        subStores: LuaMap<Uuid, SubStore>,
     ) {
         const getter = (namespace: string) => {
             return new IndexedStore(
@@ -37,7 +42,7 @@ export class IndexedCollection implements IStoreCollection<
         this.state = new IndexState(
             cacheSize,
             storedMetaPage,
-            indexStore,
+            indexCollection,
             subStores,
         );
 
@@ -268,7 +273,7 @@ class IndexedPage implements IPage {
         if (!node) { throw new Error("out of space"); }
         const uuid = node.val;
         const meta = assert(state.storedMeta.subs.get(uuid));
-        if (meta.numAllocated >= meta.allocatedQuota) {
+        if (meta.numAllocated >= assert(state.quotas.get(uuid))) {
             throw new Error("out of space");
         }
 
@@ -300,7 +305,7 @@ class IndexedPage implements IPage {
         if (!node) { throw new Error("out of space"); }
         const uuid = node.val;
         const meta = assert(state.storedMeta.subs.get(uuid));
-        if (meta.numAllocated >= meta.allocatedQuota) {
+        if (meta.numAllocated >= assert(state.quotas.get(uuid))) {
             throw new Error("out of space");
         }
 
@@ -356,7 +361,7 @@ class IndexedPage implements IPage {
         const [srcPage] = assert(this.page, "page doesn't exist");
         const state = this.state;
         const tgtMeta = assert(state.storedMeta.subs.get(tgtUuid));
-        if (tgtMeta.numAllocated >= tgtMeta.allocatedQuota) {
+        if (tgtMeta.numAllocated >= assert(state.quotas.get(tgtUuid))) {
             throw new Error("out of space");
         }
         const tgtSub = assert(state.subStores.get(tgtUuid));
@@ -435,33 +440,37 @@ class IndexState {
     public subStorePerNum: LuaMap<number, Uuid>;
     public freeQueue: Deque<Uuid>;
     public freeQueueMap: LuaMap<Uuid, DequeNode<Uuid>>;
+    public quotas: LuaMap<Uuid, number>;
 
     public constructor(
         cacheSize: number,
         storedMetaPage: IPage,
         indexCollection: IStoreCollection<IPage, IPageStore<IPage>>,
-        subStores: LuaMap<Uuid, IStoreCollection<IPage, IPageStore<IPage>>>,
+        subStores: LuaMap<Uuid, SubStore>,
     ) {
         this.storedMeta = new IndexMetaPage(storedMetaPage);
         this.indexCollection = new IndexCollection(cacheSize, indexCollection);
         this.subStores = new LuaMap();
+        this.quotas = new LuaMap();
         this.subStorePerNum = new LuaMap();
         this.freeQueue = new Deque();
         this.freeQueueMap = new LuaMap();
         for (const [uuid, meta] of this.storedMeta.subs) {
             const [sub] = assert(subStores.get(uuid), "missing store " + uuid);
-            this.subStores.set(uuid, sub);
+            this.subStores.set(uuid, sub.collection);
+            this.quotas.set(uuid, sub.quota);
             this.subStorePerNum.set(meta.indexNumber, uuid);
             this.addToQueue(uuid, meta);
         }
     }
 
     public addToQueue(uuid: Uuid, meta: SubMeta) {
-        const free = meta.allocatedQuota - meta.numAllocated;
+        const free = assert(this.quotas.get(uuid)) - meta.numAllocated;
         let node = this.freeQueue.first();
         while (node) {
             const nodeMeta = assert(this.storedMeta.subs.get(node.val));
-            const nodeFree = nodeMeta.allocatedQuota - nodeMeta.numAllocated;
+            const nodeQuota = assert(this.quotas.get(node.val));
+            const nodeFree = nodeQuota - nodeMeta.numAllocated;
             if (nodeFree <= free) {
                 this.freeQueueMap.set(uuid, node.pushBefore(uuid));
                 return;
@@ -477,13 +486,14 @@ class IndexState {
 
     public incrStoreUsed(uuid: Uuid) {
         const meta = assert(this.storedMeta.subs.get(uuid));
-        const free = meta.allocatedQuota - meta.numAllocated++;
+        const free = assert(this.quotas.get(uuid)) - meta.numAllocated++;
         const node = assert(this.freeQueueMap.get(uuid));
         let next = node.getNext();
         node.pop();
         while (next) {
             const nextMeta = assert(this.storedMeta.subs.get(node.val));
-            const nextFree = nextMeta.allocatedQuota - nextMeta.numAllocated;
+            const nextQuota = assert(this.quotas.get(node.val));
+            const nextFree = nextQuota - nextMeta.numAllocated;
             if (nextFree <= free) {
                 this.freeQueueMap.set(uuid, next.pushBefore(uuid));
                 return;
@@ -495,13 +505,14 @@ class IndexState {
 
     public decrStoreUsed(uuid: Uuid) {
         const meta = assert(this.storedMeta.subs.get(uuid));
-        const free = meta.allocatedQuota - meta.numAllocated--;
+        const free = assert(this.quotas.get(uuid)) - meta.numAllocated++;
         const node = assert(this.freeQueueMap.get(uuid));
         let prev = node.getPrev();
         node.pop();
         while (prev) {
             const prevMeta = assert(this.storedMeta.subs.get(node.val));
-            const prevFree = prevMeta.allocatedQuota - prevMeta.numAllocated;
+            const prevQuota = assert(this.quotas.get(node.val));
+            const prevFree = prevQuota - prevMeta.numAllocated;
             if (prevFree >= free) {
                 this.freeQueueMap.set(uuid, prev.pushAfter(uuid));
                 return;
