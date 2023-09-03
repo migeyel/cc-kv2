@@ -5,12 +5,14 @@ import { IPage, IPageStore, IStoreCollection } from "../IPageStore";
 const MAX_INDEXED_SUBSTORES = 65535;
 
 /** How many bytes each index entry occupies. */
-const B_PER_ENTRY = math.floor(math.log(MAX_INDEXED_SUBSTORES, 256));
+const B_PER_ENTRY = math.ceil(math.log(1 + MAX_INDEXED_SUBSTORES, 256));
+
+const ENTRY_FMT = string.format("<I%d", B_PER_ENTRY);
 
 export class IndexCollection {
     private collection: IStoreCollection<IPage, IPageStore<IPage>>;
 
-    private helperFmt: string;
+    private nullStr: string;
 
     // We need to share stores because we need to share pages.
     private stores: ObjCache<string, IndexStore>;
@@ -23,12 +25,11 @@ export class IndexCollection {
             return new IndexStore(
                 cacheSize,
                 this.collection.getStore(namespace),
-                this.helperFmt,
+                this.nullStr,
             );
         };
 
-        const entriesPerPage = math.floor(collection.pageSize / B_PER_ENTRY);
-        this.helperFmt = "<" + string.rep("I" + B_PER_ENTRY, entriesPerPage);
+        this.nullStr = string.rep("\0", collection.pageSize);
         this.collection = collection;
         this.stores = new ObjCache(cacheSize, getter);
     }
@@ -42,7 +43,7 @@ export class IndexCollection {
 export class IndexStore {
     private store: IPageStore<IPage>;
 
-    private helperFmt: string;
+    private nullStr: string;
 
     // We need to share pages because they reflect global disk state (contents
     // of the index page).
@@ -51,17 +52,17 @@ export class IndexStore {
     public constructor(
         cacheSize: number,
         store: IPageStore<IPage>,
-        helperFmt: string,
+        nullStr: string,
     ) {
         const getter = (pageNum: number) => {
             return new IndexPage(
                 this.store.getPage(pageNum),
-                this.helperFmt,
+                this.nullStr,
             );
         };
 
         this.store = store;
-        this.helperFmt = helperFmt;
+        this.nullStr = nullStr;
         this.pages = new ObjCache(cacheSize, getter);
     }
 
@@ -75,51 +76,46 @@ export class IndexStore {
 export class IndexPage {
     private page: IPage;
 
-    /** The page entries. */
-    private entries: number[];
+    private str: string;
 
-    private helperFmt: string;
+    private nullStr: string;
 
-    public constructor(page: IPage, helperFmt: string) {
-        const str = page.read() || string.rep("\0", page.pageSize);
+    public constructor(page: IPage, nullStr: string) {
+        this.nullStr = nullStr;
+        this.str = page.read() || nullStr;
         this.page = page;
-        this.helperFmt = helperFmt;
-        this.entries = string.unpack(helperFmt, str);
-        this.entries.pop();
     }
 
     public save() {
         if (this.isEmpty()) {
             this.page.delete();
         } else {
-            this.page.write(string.pack(this.helperFmt, ...this.entries));
+            this.page.write(this.str);
         }
     }
 
     public isEmpty() {
-        for (const entry of this.entries) { if (entry != 0) { return false; } }
-        return true;
+        return this.str == this.nullStr;
     }
 
     public setPageSubNum(pageNum: number, subNum: number) {
         const entriesPerPage = math.floor(this.page.pageSize / B_PER_ENTRY);
         const rem = pageNum % entriesPerPage;
-        assert((pageNum - rem) / entriesPerPage == this.page.pageNum);
-        this.entries[rem] = subNum;
+        const remByte = rem * B_PER_ENTRY;
+        const prefix = string.sub(this.str, 0, remByte);
+        const suffix = string.sub(this.str, remByte + B_PER_ENTRY + 1);
+        this.str = prefix + (string.pack(ENTRY_FMT, subNum) + suffix);
     }
 
     public delPageSubNum(pageNum: number) {
-        const entriesPerPage = math.floor(this.page.pageSize / B_PER_ENTRY);
-        const rem = pageNum % entriesPerPage;
-        assert((pageNum - rem) / entriesPerPage == this.page.pageNum);
-        this.entries[rem] = 0;
+        return this.setPageSubNum(pageNum, 0);
     }
 
     public getPageSubNum(pageNum: number): number | undefined {
         const entriesPerPage = math.floor(this.page.pageSize / B_PER_ENTRY);
         const rem = pageNum % entriesPerPage;
         assert((pageNum - rem) / entriesPerPage == this.page.pageNum);
-        const out = this.entries[rem];
+        const [out] = string.unpack(ENTRY_FMT, this.str, rem * B_PER_ENTRY + 1);
         if (out != 0) { return out; }
     }
 }
