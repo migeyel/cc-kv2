@@ -177,7 +177,7 @@ class DirPage implements IPage {
         const newPath = this.fileModPrefix + NEW_SUFFIX;
         const [newFile, err] = fs.open(newPath, "wb");
         if (!newFile) { throw err; }
-        if (data) { newFile.write(data); }
+        newFile.write(data);
         newFile.close();
 
         // Atomically move to the regular path.
@@ -195,10 +195,6 @@ class DirPage implements IPage {
 
     public openAppend(): void {
         this.handle = assert(fs.open(this.filePath, "ab")[0]);
-    }
-
-    public openAppendTruncate(): void {
-        this.handle = assert(fs.open(this.filePath, "wb")[0]);
     }
 
     public closeAppend(): void {

@@ -42,9 +42,6 @@ export interface IPage {
     /** Opens the page for appending. */
     openAppend(): void;
 
-    /** Opens the page for appending, and truncates its contents. */
-    openAppendTruncate(): void;
-
     /** Closes the page for appending. */
     closeAppend(): void;
 
