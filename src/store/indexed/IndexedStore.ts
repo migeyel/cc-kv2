@@ -2,7 +2,6 @@ import { ObjCache } from "../../ObjCache";
 import { Deque, DequeNode } from "../../Deque";
 import { IPage, IPageStore, IStoreCollection } from "../IPageStore";
 import { IndexCollection, IndexPage } from "./Index";
-import { IndexMetaPage, ProcedureType, SubMeta, Uuid } from "./Meta";
 
 type SubStore = {
     collection: IStoreCollection<IPage, IPageStore<IPage>>,
@@ -24,7 +23,8 @@ export class IndexedCollection implements IStoreCollection<
     public constructor(
         pageSize: number,
         cacheSize: number,
-        storedMetaPage: IPage,
+        subMetaPage: IPage,
+        procPage: IPage,
         indexCollection: IStoreCollection<IPage, IPageStore<IPage>>,
         subStores: LuaMap<Uuid, SubStore>,
     ) {
@@ -41,7 +41,8 @@ export class IndexedCollection implements IStoreCollection<
         this.pageSize = pageSize;
         this.state = new IndexState(
             cacheSize,
-            storedMetaPage,
+            subMetaPage,
+            procPage,
             indexCollection,
             subStores,
         );
@@ -52,7 +53,7 @@ export class IndexedCollection implements IStoreCollection<
 
     private recoverPartialPage() {
         const state = this.state;
-        const proc = state.storedMeta.proc;
+        const proc = state.proc;
         if (!proc || proc.ty != ProcedureType.PARTIAL_PAGE) { return; }
 
         // Check if it is in the index.
@@ -62,8 +63,8 @@ export class IndexedCollection implements IStoreCollection<
         if (!num) {
             // Because of procedure ordering, if the page isn't in the index it
             // also isn't in the store, so we're done.
-            state.storedMeta.proc = undefined;
-            state.storedMeta.commit();
+            state.proc = undefined;
+            state.commitProc();
             return;
         }
 
@@ -74,21 +75,21 @@ export class IndexedCollection implements IStoreCollection<
         if (page.exists()) {
             // It's in both places so we just have to increment the usage.
             state.incrStoreUsed(uuid);
-            state.storedMeta.proc = undefined;
-            state.storedMeta.commit();
+            state.proc = undefined;
+            state.commitProc();
             return;
         }
 
         // It's in the index but not the directory, so we remove from the index.
         indexPage.delPageSubNum(proc.pageNum);
         indexPage.save();
-        state.storedMeta.proc = undefined;
-        state.storedMeta.commit();
+        state.proc = undefined;
+        state.commitProc();
     }
 
     private recoverMovePage() {
         const state = this.state;
-        const proc = state.storedMeta.proc;
+        const proc = state.proc;
         if (!proc || proc.ty != ProcedureType.MOVE_PAGE) { return; }
 
         // Check what the index says.
@@ -98,8 +99,8 @@ export class IndexedCollection implements IStoreCollection<
         const uuid = assert(state.subStorePerNum.get(num));
         if (uuid == proc.sourceUuid) {
             // If it's still in the source we're done.
-            state.storedMeta.proc = undefined;
-            state.storedMeta.commit();
+            state.proc = undefined;
+            state.commitProc();
             return;
         }
 
@@ -111,8 +112,8 @@ export class IndexedCollection implements IStoreCollection<
             // the metadata.
             state.decrStoreUsed(proc.sourceUuid);
             state.incrStoreUsed(proc.targetUuid);
-            state.storedMeta.proc = undefined;
-            state.storedMeta.commit();
+            state.proc = undefined;
+            state.commitProc();
             return;
         }
 
@@ -128,8 +129,8 @@ export class IndexedCollection implements IStoreCollection<
         srcPage.delete();
         state.decrStoreUsed(proc.sourceUuid);
         state.incrStoreUsed(proc.targetUuid);
-        state.storedMeta.proc = undefined;
-        state.storedMeta.commit();
+        state.proc = undefined;
+        state.commitProc();
     }
 
     public getStore(namespace: string): IndexedStore {
@@ -159,22 +160,22 @@ export class IndexedCollection implements IStoreCollection<
         const meta = { indexNumber, allocatedQuota: quota, numAllocated: 0 };
         state.subStorePerNum.set(indexNumber, uuid);
         state.subStores.set(uuid, store);
-        state.storedMeta.subs.set(uuid, meta);
+        state.subMeta.set(uuid, meta);
         state.addToQueue(uuid, meta);
-        state.storedMeta.commit();
+        state.commitSubMeta();
     }
 
     public removeSubStore(uuid: Uuid) {
         const state = this.state;
         const sub = state.subStores.get(uuid);
         if (!sub) { return; }
-        const meta = assert(state.storedMeta.subs.get(uuid));
+        const meta = assert(state.subMeta.get(uuid));
         assert(meta.numAllocated == 0, "can't delete a nonempty store");
         state.delFromQueue(uuid);
-        state.storedMeta.subs.delete(uuid);
+        state.subMeta.delete(uuid);
         state.subStores.delete(uuid);
         state.subStorePerNum.delete(meta.indexNumber);
-        state.storedMeta.commit();
+        state.commitSubMeta();
     }
 }
 
@@ -272,7 +273,7 @@ class IndexedPage implements IPage {
         const node = state.freeQueue.first();
         if (!node) { throw new Error("out of space"); }
         const uuid = node.val;
-        const meta = assert(state.storedMeta.subs.get(uuid));
+        const meta = assert(state.subMeta.get(uuid));
         if (meta.numAllocated >= assert(state.quotas.get(uuid))) {
             throw new Error("out of space");
         }
@@ -280,12 +281,12 @@ class IndexedPage implements IPage {
         const sub = assert(state.subStores.get(uuid)).getStore(this.namespace);
 
         // Register the partial page procedure.
-        state.storedMeta.proc = {
+        state.proc = {
             ty: ProcedureType.PARTIAL_PAGE,
             namespace: this.namespace,
             pageNum: this.pageNum,
         };
-        state.storedMeta.commit();
+        state.commitProc();
 
         // Write (index, then directory).
         this.indexPage.setPageSubNum(this.pageNum, meta.indexNumber);
@@ -295,7 +296,7 @@ class IndexedPage implements IPage {
 
         // Finish the procedure in memory.
         state.incrStoreUsed(uuid);
-        state.storedMeta.proc = undefined;
+        state.proc = undefined;
     }
 
     public createOpen(): void {
@@ -304,7 +305,7 @@ class IndexedPage implements IPage {
         const node = state.freeQueue.first();
         if (!node) { throw new Error("out of space"); }
         const uuid = node.val;
-        const meta = assert(state.storedMeta.subs.get(uuid));
+        const meta = assert(state.subMeta.get(uuid));
         if (meta.numAllocated >= assert(state.quotas.get(uuid))) {
             throw new Error("out of space");
         }
@@ -312,12 +313,12 @@ class IndexedPage implements IPage {
         const sub = assert(state.subStores.get(uuid)).getStore(this.namespace);
 
         // Register the partial page procedure.
-        state.storedMeta.proc = {
+        state.proc = {
             ty: ProcedureType.PARTIAL_PAGE,
             namespace: this.namespace,
             pageNum: this.pageNum,
         };
-        state.storedMeta.commit();
+        state.commitProc();
 
         // Write (index, then directory).
         this.indexPage.setPageSubNum(this.pageNum, meta.indexNumber);
@@ -328,7 +329,7 @@ class IndexedPage implements IPage {
 
         // Finish the procedure in memory.
         state.incrStoreUsed(uuid);
-        state.storedMeta.proc = undefined;
+        state.proc = undefined;
     }
 
     public delete(): void {
@@ -339,11 +340,12 @@ class IndexedPage implements IPage {
 
         // Register the partial page procedure.
         state.decrStoreUsed(uuid);
-        state.storedMeta.proc = {
+        state.proc = {
             ty: ProcedureType.PARTIAL_PAGE,
             namespace: this.namespace,
             pageNum: this.pageNum,
         };
+        state.commitProc();
 
         // Delete (directory, then index).
         if (this.appendRefCount > 0) { page.closeAppend(); }
@@ -352,7 +354,7 @@ class IndexedPage implements IPage {
         this.indexPage.save();
 
         // Finish the procedure in memory.
-        state.storedMeta.proc = undefined;
+        state.proc = undefined;
         this.page = undefined;
         this.appendRefCount = 0;
     }
@@ -360,7 +362,7 @@ class IndexedPage implements IPage {
     public move(tgtUuid: Uuid) {
         const [srcPage] = assert(this.page, "page doesn't exist");
         const state = this.state;
-        const tgtMeta = assert(state.storedMeta.subs.get(tgtUuid));
+        const tgtMeta = assert(state.subMeta.get(tgtUuid));
         if (tgtMeta.numAllocated >= assert(state.quotas.get(tgtUuid))) {
             throw new Error("out of space");
         }
@@ -370,14 +372,14 @@ class IndexedPage implements IPage {
         const tgtPage = tgtSub.getStore(this.namespace).getPage(this.pageNum);
 
         // Register the move page procedure.
-        state.storedMeta.proc = {
+        state.proc = {
             ty: ProcedureType.MOVE_PAGE,
             sourceUuid: srcUuid,
             targetUuid: tgtUuid,
             namespace: this.namespace,
             pageNum: this.pageNum,
         };
-        state.storedMeta.commit();
+        state.commitProc();
 
         // Update the index.
         this.indexPage.setPageSubNum(this.pageNum, tgtMeta.indexNumber);
@@ -391,7 +393,7 @@ class IndexedPage implements IPage {
         // Finish the procedure in memory.
         state.decrStoreUsed(srcUuid);
         state.incrStoreUsed(tgtUuid);
-        state.storedMeta.proc = undefined;
+        state.proc = undefined;
         this.page = tgtPage;
         if (this.appendRefCount > 0) { tgtPage.openAppend(); }
     }
@@ -434,7 +436,12 @@ class IndexedPage implements IPage {
 }
 
 class IndexState {
-    public storedMeta: IndexMetaPage;
+    public subMetaPage: IPage;
+    public subMeta: LuaMap<Uuid, SubMeta>;
+
+    public procPage: IPage;
+    public proc?: Procedure;
+
     public indexCollection: IndexCollection;
     public subStores: LuaMap<Uuid, IStoreCollection<IPage, IPageStore<IPage>>>;
     public subStorePerNum: LuaMap<number, Uuid>;
@@ -444,18 +451,33 @@ class IndexState {
 
     public constructor(
         cacheSize: number,
-        storedMetaPage: IPage,
+        procPage: IPage,
+        subMetaPage: IPage,
         indexCollection: IStoreCollection<IPage, IPageStore<IPage>>,
         subStores: LuaMap<Uuid, SubStore>,
     ) {
-        this.storedMeta = new IndexMetaPage(storedMetaPage);
         this.indexCollection = new IndexCollection(cacheSize, indexCollection);
         this.subStores = new LuaMap();
         this.quotas = new LuaMap();
         this.subStorePerNum = new LuaMap();
         this.freeQueue = new Deque();
         this.freeQueueMap = new LuaMap();
-        for (const [uuid, meta] of this.storedMeta.subs) {
+
+        this.subMetaPage = subMetaPage;
+        const subMetaStr = subMetaPage.read();
+        if (subMetaStr) {
+            this.subMeta = textutils.unserialize(subMetaStr);
+        } else {
+            this.subMeta = new LuaMap();
+        }
+
+        this.procPage = procPage;
+        const procStr = procPage.read();
+        if (procStr) {
+            this.proc = textutils.unserialise(procStr);
+        }
+
+        for (const [uuid, meta] of this.subMeta) {
             const [sub] = assert(subStores.get(uuid), "missing store " + uuid);
             this.subStores.set(uuid, sub.collection);
             this.quotas.set(uuid, sub.quota);
@@ -468,7 +490,7 @@ class IndexState {
         const free = assert(this.quotas.get(uuid)) - meta.numAllocated;
         let node = this.freeQueue.first();
         while (node) {
-            const nodeMeta = assert(this.storedMeta.subs.get(node.val));
+            const nodeMeta = assert(this.subMeta.get(node.val));
             const nodeQuota = assert(this.quotas.get(node.val));
             const nodeFree = nodeQuota - nodeMeta.numAllocated;
             if (nodeFree <= free) {
@@ -485,13 +507,13 @@ class IndexState {
     }
 
     public incrStoreUsed(uuid: Uuid) {
-        const meta = assert(this.storedMeta.subs.get(uuid));
+        const meta = assert(this.subMeta.get(uuid));
         const free = assert(this.quotas.get(uuid)) - meta.numAllocated++;
         const node = assert(this.freeQueueMap.get(uuid));
         let next = node.getNext();
         node.pop();
         while (next) {
-            const nextMeta = assert(this.storedMeta.subs.get(node.val));
+            const nextMeta = assert(this.subMeta.get(node.val));
             const nextQuota = assert(this.quotas.get(node.val));
             const nextFree = nextQuota - nextMeta.numAllocated;
             if (nextFree <= free) {
@@ -504,13 +526,13 @@ class IndexState {
     }
 
     public decrStoreUsed(uuid: Uuid) {
-        const meta = assert(this.storedMeta.subs.get(uuid));
+        const meta = assert(this.subMeta.get(uuid));
         const free = assert(this.quotas.get(uuid)) - meta.numAllocated++;
         const node = assert(this.freeQueueMap.get(uuid));
         let prev = node.getPrev();
         node.pop();
         while (prev) {
-            const prevMeta = assert(this.storedMeta.subs.get(node.val));
+            const prevMeta = assert(this.subMeta.get(node.val));
             const prevQuota = assert(this.quotas.get(node.val));
             const prevFree = prevQuota - prevMeta.numAllocated;
             if (prevFree >= free) {
@@ -521,4 +543,45 @@ class IndexState {
         }
         this.freeQueueMap.set(uuid, this.freeQueue.pushBack(uuid));
     }
+
+    public commitSubMeta() {
+        this.subMetaPage.write(textutils.serialize(this.subMeta));
+        this.subMetaPage.flush();
+    }
+
+    public commitProc() {
+        this.procPage.write(textutils.serialize(this.proc));
+        this.procPage.flush();
+    }
 }
+
+export type Uuid = string;
+
+export type SubMeta = {
+    indexNumber: number,
+    numAllocated: number,
+}
+
+export type Procedure =
+    | PageMoveProcedure
+    | PartialPageProcedure
+
+export enum ProcedureType {
+    MOVE_PAGE,
+    PARTIAL_PAGE,
+}
+
+export type PageMoveProcedure = {
+    ty: ProcedureType.MOVE_PAGE,
+    sourceUuid: string,
+    targetUuid: string,
+    namespace: string,
+    pageNum: number,
+}
+
+export type PartialPageProcedure = {
+    ty: ProcedureType.PARTIAL_PAGE,
+    namespace: string,
+    pageNum: number,
+}
+
