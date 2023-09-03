@@ -4,6 +4,7 @@ import { IPage, IPageStore, IStoreCollection } from "../IPageStore";
 import { IndexCollection, IndexPage } from "./Index";
 import { IndexMetaPage, ProcedureType, SubMeta, Uuid } from "./Meta";
 
+/** A store collection that multiplexes store collections through an index. */
 export class IndexedCollection implements IStoreCollection<
     IndexedPage,
     IndexedStore
@@ -196,6 +197,16 @@ class IndexedStore implements IPageStore<IndexedPage> {
 
     public getPage(pageNum: number): IndexedPage {
         return this.pages.get(pageNum);
+    }
+
+    public listPages(): LuaSet<number> {
+        const out = new LuaSet<number>();
+        for (const [_, sub] of this.state.subStores) {
+            for (const page of sub.getStore(this.namespace).listPages()) {
+                out.add(page);
+            }
+        }
+        return out;
     }
 }
 

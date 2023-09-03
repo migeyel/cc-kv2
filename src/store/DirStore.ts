@@ -99,6 +99,14 @@ class DirPageStore implements IPageStore<DirPage> {
             pageNum,
         );
     }
+
+    public listPages(): LuaSet<number> {
+        const out = new LuaSet<number>();
+        for (const file of fs.find(this.filePrefix + "*")) {
+            out.add(assert(tonumber(string.match("_[0-9]+$", file))));
+        }
+        return out;
+    }
 }
 
 class DirPage implements IPage {

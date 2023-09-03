@@ -58,6 +58,9 @@ export interface IPageStore<P extends IPage> {
 
     /** Specifies a page in the store. */
     getPage(pageNum: number): P;
+
+    /** Lists all pages in the store. */
+    listPages(): LuaSet<number>;
 }
 
 /**
