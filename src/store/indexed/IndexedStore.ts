@@ -51,6 +51,62 @@ export class IndexedCollection implements IStoreCollection<
         this.recoverMovePage();
     }
 
+    public static exhausivelyFromSubsOnly(
+        pageSize: number,
+        cacheSize: number,
+        subMetaPage: IPage,
+        procPage: IPage,
+        indexCollection: IStoreCollection<IPage, IPageStore<IPage>>,
+        subStores: LuaMap<Uuid, SubStore>,
+    ): IndexedCollection {
+        const state = new IndexState(
+            cacheSize,
+            subMetaPage,
+            procPage,
+            indexCollection,
+            subStores,
+        );
+
+        // Procedure isn't needed, we'll recover exhaustively.
+        procPage.delete();
+
+        // Rather than using a procedure file, recovery happens by scanning the
+        // sub-stores and solving issues.
+        for (const [uuid, sub] of subStores) {
+            const subMeta = assert(state.subMeta.get(uuid));
+            subMeta.numAllocated = 0; // We'll recompute these.
+            const coll = sub.collection;
+            for (const namespace of coll.listStores()) {
+                const indexStore =
+                    state.indexCollection.getIndexStore(namespace);
+                const pages = new LuaSet<number>();
+                const store = coll.getStore(namespace);
+                for (const pageNum of store.listPages()) {
+                    if (pages.has(pageNum)) {
+                        // Duplicate file from failed move, delete.
+                        store.getPage(pageNum).delete();
+                    } else {
+                        pages.add(pageNum);
+                        const page = indexStore.getPageIndexPage(pageNum);
+                        subMeta.numAllocated++;
+                        page.setPageSubNum(pageNum, subMeta.indexNumber);
+                        page.save();
+                    }
+                }
+            }
+        }
+        state.commitSubMeta();
+
+        return new IndexedCollection(
+            pageSize,
+            cacheSize,
+            subMetaPage,
+            procPage,
+            indexCollection,
+            subStores,
+        );
+    }
+
     private recoverPartialPage() {
         const state = this.state;
         const proc = state.proc;
@@ -161,6 +217,7 @@ export class IndexedCollection implements IStoreCollection<
         state.subStorePerNum.set(indexNumber, uuid);
         state.subStores.set(uuid, store);
         state.subMeta.set(uuid, meta);
+        state.quotas.set(uuid, quota);
         state.addToQueue(uuid, meta);
         state.commitSubMeta();
     }
@@ -174,6 +231,7 @@ export class IndexedCollection implements IStoreCollection<
         state.delFromQueue(uuid);
         state.subMeta.delete(uuid);
         state.subStores.delete(uuid);
+        state.quotas.delete(uuid);
         state.subStorePerNum.delete(meta.indexNumber);
         state.commitSubMeta();
     }
