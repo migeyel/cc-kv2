@@ -131,6 +131,16 @@ export class IndexedCollection implements IStoreCollection<
         return this.stores.get(namespace);
     }
 
+    public listStores(): LuaSet<string> {
+        const out = new LuaSet<string>();
+        for (const [_, sub] of this.state.subStores) {
+            for (const page of sub.listStores()) {
+                out.add(page);
+            }
+        }
+        return out;
+    }
+
     public addSubStore(
         uuid: Uuid,
         store: IStoreCollection<IPage, IPageStore<IPage>>,

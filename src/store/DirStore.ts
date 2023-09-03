@@ -69,6 +69,15 @@ export class DirStoreCollection implements IStoreCollection<
             namespace,
         );
     }
+
+    public listStores(): LuaSet<string> {
+        const out = new LuaSet<string>();
+        for (const file of fs.find(this.dirPath + "/*")) {
+            const [name] = string.match(file, "^(.*)_[0-9]+$");
+            if (name) { out.add(name); }
+        }
+        return out;
+    }
 }
 
 class DirPageStore implements IPageStore<DirPage> {
@@ -103,7 +112,7 @@ class DirPageStore implements IPageStore<DirPage> {
     public listPages(): LuaSet<number> {
         const out = new LuaSet<number>();
         for (const file of fs.find(this.filePrefix + "*")) {
-            out.add(assert(tonumber(string.match("_[0-9]+$", file))));
+            out.add(assert(tonumber(string.match(file, "_[0-9]+$"))));
         }
         return out;
     }

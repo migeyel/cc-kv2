@@ -72,4 +72,7 @@ export interface IStoreCollection<P extends IPage, S extends IPageStore<P>> {
 
     /** Specifies a store in the collection. */
     getStore(namespace: string): S;
+
+    /** Lists all stores with at least one page in the collection. */
+    listStores(): LuaSet<string>;
 }
