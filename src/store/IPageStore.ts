@@ -1,3 +1,9 @@
+/** The largest length a namespace string can take. */
+export const MAX_NAMESPACE_LEN = 32;
+
+/** The maximum page number a store can hold. */
+export const MAX_PAGE_NUM = 2 ** 48 - 1;
+
 /**
  * A (possibly non-existent) page in a page store.
  *
@@ -48,9 +54,6 @@ export interface IPage {
     /** Flushes this page to disk. */
     flush(): void;
 }
-
-/** The largest length a namespace string can take. */
-export const MAX_NAMESPACE_LEN = 32;
 
 /**
  * A generic store for disk pages.
