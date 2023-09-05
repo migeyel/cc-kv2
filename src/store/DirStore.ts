@@ -112,7 +112,8 @@ class DirPageStore implements IPageStore<DirPage> {
     public listPages(): LuaSet<number> {
         const out = new LuaSet<number>();
         for (const file of fs.find(this.filePrefix + "*")) {
-            out.add(assert(tonumber(string.match(file, "_[0-9]+$"))));
+            const match = string.match(file, "_([0-9]+)$")[0];
+            if (match != undefined) { out.add(assert(tonumber(match))); }
         }
         return out;
     }
