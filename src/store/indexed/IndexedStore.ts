@@ -1,6 +1,11 @@
 import { ObjCache } from "../../ObjCache";
 import { Deque, DequeNode } from "../../Deque";
-import { IPage, IPageStore, IStoreCollection } from "../IPageStore";
+import {
+    IPage,
+    IPageStore,
+    IStoreCollection,
+    MAX_NAMESPACE_LEN,
+} from "../IPageStore";
 import { IndexCollection, IndexPage } from "./Index";
 
 type SubStore = {
@@ -190,6 +195,7 @@ export class IndexedCollection implements IStoreCollection<
     }
 
     public getStore(namespace: string): IndexedStore {
+        assert(namespace.length <= MAX_NAMESPACE_LEN);
         return this.stores.get(namespace);
     }
 

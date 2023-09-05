@@ -49,6 +49,9 @@ export interface IPage {
     flush(): void;
 }
 
+/** The largest length a namespace string can take. */
+export const MAX_NAMESPACE_LEN = 32;
+
 /**
  * A generic store for disk pages.
  */

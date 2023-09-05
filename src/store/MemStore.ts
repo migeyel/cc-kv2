@@ -1,4 +1,9 @@
-import { IPage, IPageStore, IStoreCollection } from "./IPageStore";
+import {
+    IPage,
+    IPageStore,
+    IStoreCollection,
+    MAX_NAMESPACE_LEN,
+} from "./IPageStore";
 
 /** An in-memory store impplementation. */
 export class MemCollection implements IStoreCollection<MemPage, MemStore> {
@@ -11,6 +16,7 @@ export class MemCollection implements IStoreCollection<MemPage, MemStore> {
     }
 
     public getStore(namespace: string): MemStore {
+        assert(namespace.length <= MAX_NAMESPACE_LEN);
         return new MemStore(this.pageSize, namespace, this.state);
     }
 

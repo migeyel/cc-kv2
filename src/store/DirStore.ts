@@ -1,4 +1,9 @@
-import { IPage, IStoreCollection, IPageStore } from "./IPageStore";
+import {
+    IPage,
+    IStoreCollection,
+    IPageStore,
+    MAX_NAMESPACE_LEN,
+} from "./IPageStore";
 
 /** The subdirectory for storing store modifications. */
 const MOD_SUBDIR = "_";
@@ -62,6 +67,7 @@ export class DirStoreCollection implements IStoreCollection<
     }
 
     public getStore(namespace: string): DirPageStore {
+        assert(namespace.length <= MAX_NAMESPACE_LEN);
         return new DirPageStore(
             this.pageSize,
             this.dirPath,
