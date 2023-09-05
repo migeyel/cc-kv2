@@ -34,12 +34,20 @@ export class RecordLog {
 
     /** Gets the LSN of the first record stored in the log. */
     public getStart(): number {
-        return this.headPageNum * this.pageSize;
+        return this.firstLsn;
     }
 
     /** Returns the LSN of the next entry to be appended in the log. */
     public getEnd(): number {
         return this.tailBaseLsn() + this.tailSize;
+    }
+
+    public isEmpty(): boolean {
+        return this.getStart() == this.getEnd();
+    }
+
+    public getNumPages(): number {
+        return this.tailPage.pageNum - this.headPageNum + 1;
     }
 
     /** Returns whether no new entries can be added to the tail page. */
@@ -219,7 +227,7 @@ export class RecordLog {
 
         // Detect and delete torn records.
         while (true) {
-            const tailEntries = this.listEntries(this.tailPage);
+            const tailEntries = this.listEntries(this.tailPage.pageNum);
 
             let hasTornRecord = false;
             if (this.isTailFull() || tailEntries.length == 0) {
