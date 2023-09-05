@@ -6,9 +6,11 @@ import {
     IStoreCollection,
     MAX_NAMESPACE_LEN,
 } from "../IPageStore";
-import { IndexCollection, IndexPage } from "./Index";
+import { IndexCollection, IndexPage, MAX_INDEXED_SUBSTORES } from "./Index";
+import { RecordLog } from "../../RecordLog";
+import { IndexLog, RecordType, SubStoreNum } from "./IndexLog";
 
-type SubStore = {
+export type SubStore = {
     collection: IStoreCollection<IPage, IPageStore<IPage>>,
     quota: number,
 };
@@ -28,10 +30,9 @@ export class IndexedCollection implements IStoreCollection<
     public constructor(
         pageSize: number,
         cacheSize: number,
-        subMetaPage: IPage,
-        procPage: IPage,
+        indexLog: RecordLog,
         indexCollection: IStoreCollection<IPage, IPageStore<IPage>>,
-        subStores: LuaMap<Uuid, SubStore>,
+        subStores: LuaMap<number, SubStore>,
     ) {
         const getter = (namespace: string) => {
             return new IndexedStore(
@@ -46,152 +47,42 @@ export class IndexedCollection implements IStoreCollection<
         this.pageSize = pageSize;
         this.state = new IndexState(
             cacheSize,
-            subMetaPage,
-            procPage,
+            indexLog,
             indexCollection,
             subStores,
         );
 
-        this.recoverPartialPage();
-        this.recoverMovePage();
+        this.state.recoverLastProcedure();
     }
 
-    public static exhausivelyFromSubsOnly(
-        pageSize: number,
-        cacheSize: number,
-        subMetaPage: IPage,
-        procPage: IPage,
+    public static repopulateIndex(
+        indexLog: RecordLog,
         indexCollection: IStoreCollection<IPage, IPageStore<IPage>>,
-        subStores: LuaMap<Uuid, SubStore>,
-    ): IndexedCollection {
+        subStores: LuaMap<number, SubStore>,
+    ) {
+        // Wrap the collection as some index state for encoding.
         const state = new IndexState(
-            cacheSize,
-            subMetaPage,
-            procPage,
+            16,
+            indexLog,
             indexCollection,
             subStores,
         );
 
-        // Procedure isn't needed, we'll recover exhaustively.
-        procPage.delete();
-
-        // Rather than using a procedure file, recovery happens by scanning the
-        // sub-stores and solving issues.
-        for (const [uuid, sub] of subStores) {
-            const subMeta = assert(state.subMeta.get(uuid));
-            subMeta.numAllocated = 0; // We'll recompute these.
+        // Repopulate the index from the store listing. Recovery *should* take
+        // care of everything else.
+        for (const [num, sub] of subStores) {
             const coll = sub.collection;
             for (const namespace of coll.listStores()) {
                 const indexStore =
                     state.indexCollection.getIndexStore(namespace);
-                const pages = new LuaSet<number>();
                 const store = coll.getStore(namespace);
                 for (const pageNum of store.listPages()) {
-                    if (pages.has(pageNum)) {
-                        // Duplicate file from failed move, delete.
-                        store.getPage(pageNum).delete();
-                    } else {
-                        pages.add(pageNum);
-                        const page = indexStore.getPageIndexPage(pageNum);
-                        subMeta.numAllocated++;
-                        page.setPageSubNum(pageNum, subMeta.indexNumber);
-                        page.save();
-                    }
+                    const page = indexStore.getPageIndexPage(pageNum);
+                    page.setPageSubNum(pageNum, num);
+                    page.save();
                 }
             }
         }
-        state.commitSubMeta();
-
-        return new IndexedCollection(
-            pageSize,
-            cacheSize,
-            subMetaPage,
-            procPage,
-            indexCollection,
-            subStores,
-        );
-    }
-
-    private recoverPartialPage() {
-        const state = this.state;
-        const proc = state.proc;
-        if (!proc || proc.ty != ProcedureType.PARTIAL_PAGE) { return; }
-
-        // Check if it is in the index.
-        const indexStore = state.indexCollection.getIndexStore(proc.namespace);
-        const indexPage = indexStore.getPageIndexPage(proc.pageNum);
-        const num = indexPage.getPageSubNum(proc.pageNum);
-        if (!num) {
-            // Because of procedure ordering, if the page isn't in the index it
-            // also isn't in the store, so we're done.
-            state.proc = undefined;
-            state.commitProc();
-            return;
-        }
-
-        // Check if it's in the store.
-        const uuid = assert(state.subStorePerNum.get(num));
-        const sub = assert(state.subStores.get(uuid));
-        const page = sub.getStore(proc.namespace).getPage(proc.pageNum);
-        if (page.exists()) {
-            // It's in both places so we just have to increment the usage.
-            state.incrStoreUsed(uuid);
-            state.proc = undefined;
-            state.commitProc();
-            return;
-        }
-
-        // It's in the index but not the directory, so we remove from the index.
-        indexPage.delPageSubNum(proc.pageNum);
-        indexPage.save();
-        state.proc = undefined;
-        state.commitProc();
-    }
-
-    private recoverMovePage() {
-        const state = this.state;
-        const proc = state.proc;
-        if (!proc || proc.ty != ProcedureType.MOVE_PAGE) { return; }
-
-        // Check what the index says.
-        const indexStore = state.indexCollection.getIndexStore(proc.namespace);
-        const indexPage = indexStore.getPageIndexPage(proc.pageNum);
-        const num = assert(indexPage.getPageSubNum(proc.pageNum));
-        const uuid = assert(state.subStorePerNum.get(num));
-        if (uuid == proc.sourceUuid) {
-            // If it's still in the source we're done.
-            state.proc = undefined;
-            state.commitProc();
-            return;
-        }
-
-        // Check if there's a copy in the source dir.
-        const srcSub = assert(state.subStores.get(proc.sourceUuid));
-        const srcPage = srcSub.getStore(proc.namespace).getPage(proc.pageNum);
-        if (!srcPage.exists()) {
-            // It's not there so the copy was a success. We just need to update
-            // the metadata.
-            state.decrStoreUsed(proc.sourceUuid);
-            state.incrStoreUsed(proc.targetUuid);
-            state.proc = undefined;
-            state.commitProc();
-            return;
-        }
-
-        // Check if there's a copy in the target dir.
-        const tgtSub = assert(state.subStores.get(proc.targetUuid));
-        const tgtPage = tgtSub.getStore(proc.namespace).getPage(proc.pageNum);
-        if (!tgtPage.exists()) {
-            // Copy the page over.
-            tgtPage.create(srcPage.read());
-        }
-
-        // Delete the source page and update the metadata.
-        srcPage.delete();
-        state.decrStoreUsed(proc.sourceUuid);
-        state.incrStoreUsed(proc.targetUuid);
-        state.proc = undefined;
-        state.commitProc();
     }
 
     public getStore(namespace: string): IndexedStore {
@@ -210,36 +101,38 @@ export class IndexedCollection implements IStoreCollection<
     }
 
     public addSubStore(
-        uuid: Uuid,
+        num: SubStoreNum,
         store: IStoreCollection<IPage, IPageStore<IPage>>,
         quota: number,
     ) {
+        assert(num > 0, "invalid sub-store number");
+        assert(num <= MAX_INDEXED_SUBSTORES, "invalid sub-store number");
         const state = this.state;
-        assert(store.pageSize <= this.pageSize, "invalid sub-store page size");
-        assert(!state.subStores.has(uuid), "can't add sub-store twice");
-        let indexNumber = 1;
-        while (state.subStorePerNum.has(indexNumber)) { indexNumber++; }
-        const meta = { indexNumber, allocatedQuota: quota, numAllocated: 0 };
-        state.subStorePerNum.set(indexNumber, uuid);
-        state.subStores.set(uuid, store);
-        state.subMeta.set(uuid, meta);
-        state.quotas.set(uuid, quota);
-        state.addToQueue(uuid, meta);
-        state.commitSubMeta();
+        assert(store.pageSize >= this.pageSize, "invalid sub-store page size");
+        assert(!state.subStores.has(num), "can't add sub-store twice");
+        state.subStores.set(num, store);
+        state.quotas.set(num, quota);
+        state.log.registerProcedure({
+            ty: RecordType.CREATE_SUB_STORE,
+            where: num,
+        });
+        state.updateQueue(num);
+        state.log.writeCheckpointIfFull();
     }
 
-    public removeSubStore(uuid: Uuid) {
+    public removeSubStore(num: SubStoreNum) {
         const state = this.state;
-        const sub = state.subStores.get(uuid);
-        if (!sub) { return; }
-        const meta = assert(state.subMeta.get(uuid));
-        assert(meta.numAllocated == 0, "can't delete a nonempty store");
-        state.delFromQueue(uuid);
-        state.subMeta.delete(uuid);
-        state.subStores.delete(uuid);
-        state.quotas.delete(uuid);
-        state.subStorePerNum.delete(meta.indexNumber);
-        state.commitSubMeta();
+        const usage = state.log.usages.get(num);
+        if (!usage) { return; }
+        assert(usage == 0, "can't delete a nonempty store");
+        state.subStores.delete(num);
+        state.quotas.delete(num);
+        state.log.registerProcedure({
+            ty: RecordType.DELETE_SUB_STORE,
+            where: num,
+        });
+        state.updateQueue(num);
+        state.log.writeCheckpointIfFull();
     }
 }
 
@@ -322,8 +215,7 @@ class IndexedPage implements IPage {
         this.indexPage = indexStore.getPageIndexPage(pageNum);
         const num = this.indexPage.getPageSubNum(this.pageNum);
         if (!num) { return; }
-        const uuid = assert(state.subStorePerNum.get(num));
-        const sub = assert(state.subStores.get(uuid));
+        const sub = assert(state.subStores.get(num));
         this.page = sub.getStore(namespace).getPage(pageNum);
     }
 
@@ -334,82 +226,79 @@ class IndexedPage implements IPage {
     public create(initialData?: string | undefined): void {
         assert(!this.exists(), "page exists");
         const state = this.state;
-        const node = state.freeQueue.first();
-        if (!node) { throw new Error("out of space"); }
-        const uuid = node.val;
-        const meta = assert(state.subMeta.get(uuid));
-        if (meta.numAllocated >= assert(state.quotas.get(uuid))) {
-            throw new Error("out of space");
-        }
-
-        const sub = assert(state.subStores.get(uuid)).getStore(this.namespace);
+        const [node] = assert(state.freeQueue.first(), "out of space");
+        const where = node.val;
+        const allocated = assert(this.state.log.usages.get(where));
+        const quota = assert(this.state.quotas.get(where));
+        assert(allocated < quota, "out of space");
+        const sub = assert(state.subStores.get(where));
+        const store = sub.getStore(this.namespace);
+        const page = store.getPage(this.pageNum);
 
         // Register the partial page procedure.
-        state.proc = {
-            ty: ProcedureType.PARTIAL_PAGE,
+        state.log.registerProcedure({
+            ty: RecordType.CREATE_PAGE,
             namespace: this.namespace,
             pageNum: this.pageNum,
-        };
-        state.commitProc();
+            where,
+        });
+        state.updateQueue(where);
 
         // Write (index, then directory).
-        this.indexPage.setPageSubNum(this.pageNum, meta.indexNumber);
+        this.indexPage.setPageSubNum(this.pageNum, where);
         this.indexPage.save();
-        this.page = sub.getPage(this.pageNum);
+        this.page = page;
         this.page.create(initialData);
 
         // Finish the procedure in memory.
-        state.incrStoreUsed(uuid);
-        state.proc = undefined;
+        state.log.writeCheckpointIfFull();
     }
 
     public createOpen(): void {
         assert(!this.exists(), "page exists");
         const state = this.state;
-        const node = state.freeQueue.first();
-        if (!node) { throw new Error("out of space"); }
-        const uuid = node.val;
-        const meta = assert(state.subMeta.get(uuid));
-        if (meta.numAllocated >= assert(state.quotas.get(uuid))) {
-            throw new Error("out of space");
-        }
-
-        const sub = assert(state.subStores.get(uuid)).getStore(this.namespace);
+        const [node] = assert(state.freeQueue.first(), "out of space");
+        const where = node.val;
+        const allocated = assert(this.state.log.usages.get(where));
+        const quota = assert(this.state.quotas.get(where));
+        assert(allocated < quota, "out of space");
+        const sub = assert(state.subStores.get(where));
+        const store = sub.getStore(this.namespace);
+        const page = store.getPage(this.pageNum);
 
         // Register the partial page procedure.
-        state.proc = {
-            ty: ProcedureType.PARTIAL_PAGE,
+        state.log.registerProcedure({
+            ty: RecordType.CREATE_PAGE,
             namespace: this.namespace,
             pageNum: this.pageNum,
-        };
-        state.commitProc();
+            where,
+        });
+        state.updateQueue(where);
 
         // Write (index, then directory).
-        this.indexPage.setPageSubNum(this.pageNum, meta.indexNumber);
+        this.indexPage.setPageSubNum(this.pageNum, where);
         this.indexPage.save();
-        this.page = sub.getPage(this.pageNum);
+        this.page = page;
         this.page.createOpen();
         this.appendRefCount = 1;
 
         // Finish the procedure in memory.
-        state.incrStoreUsed(uuid);
-        state.proc = undefined;
+        state.log.writeCheckpointIfFull();
     }
 
     public delete(): void {
         const [page] = assert(this.page, "page doesn't exist");
         const state = this.state;
-        const num = assert(this.indexPage.getPageSubNum(this.pageNum));
-        const uuid = assert(state.subStorePerNum.get(num));
+        const where = assert(this.indexPage.getPageSubNum(this.pageNum));
 
         // Register the partial page procedure.
-        state.decrStoreUsed(uuid);
-        state.proc = {
-            ty: ProcedureType.PARTIAL_PAGE,
+        state.log.registerProcedure({
+            ty: RecordType.DELETE_PAGE,
             namespace: this.namespace,
             pageNum: this.pageNum,
-        };
-        state.commitProc();
+            where,
+        });
+        state.updateQueue(where);
 
         // Delete (directory, then index).
         if (this.appendRefCount > 0) { page.closeAppend(); }
@@ -418,35 +307,34 @@ class IndexedPage implements IPage {
         this.indexPage.save();
 
         // Finish the procedure in memory.
-        state.proc = undefined;
         this.page = undefined;
         this.appendRefCount = 0;
+        state.log.writeCheckpointIfFull();
     }
 
-    public move(tgtUuid: Uuid) {
+    public move(target: SubStoreNum) {
         const [srcPage] = assert(this.page, "page doesn't exist");
         const state = this.state;
-        const tgtMeta = assert(state.subMeta.get(tgtUuid));
-        if (tgtMeta.numAllocated >= assert(state.quotas.get(tgtUuid))) {
-            throw new Error("out of space");
-        }
-        const tgtSub = assert(state.subStores.get(tgtUuid));
-        const srcNum = assert(this.indexPage.getPageSubNum(this.pageNum));
-        const srcUuid = assert(state.subStorePerNum.get(srcNum));
-        const tgtPage = tgtSub.getStore(this.namespace).getPage(this.pageNum);
+        const usage = assert(state.log.usages.get(target));
+        const quota = assert(state.quotas.get(target));
+        assert(usage < quota, "out of space");
+        const tgtSub = assert(state.subStores.get(target));
+        const tgtStore = tgtSub.getStore(this.namespace);
+        const tgtPage = tgtStore.getPage(this.pageNum);
+        const source = assert(this.indexPage.getPageSubNum(this.pageNum));
 
         // Register the move page procedure.
-        state.proc = {
-            ty: ProcedureType.MOVE_PAGE,
-            sourceUuid: srcUuid,
-            targetUuid: tgtUuid,
+        state.log.registerProcedure({
+            ty: RecordType.MOVE_PAGE,
+            from: source,
+            to: target,
             namespace: this.namespace,
             pageNum: this.pageNum,
-        };
-        state.commitProc();
+        });
+        state.updateQueue(source, target);
 
         // Update the index.
-        this.indexPage.setPageSubNum(this.pageNum, tgtMeta.indexNumber);
+        this.indexPage.setPageSubNum(this.pageNum, target);
         this.indexPage.save();
 
         // Copy the page over.
@@ -455,11 +343,9 @@ class IndexedPage implements IPage {
         srcPage.delete();
 
         // Finish the procedure in memory.
-        state.decrStoreUsed(srcUuid);
-        state.incrStoreUsed(tgtUuid);
-        state.proc = undefined;
         this.page = tgtPage;
         if (this.appendRefCount > 0) { tgtPage.openAppend(); }
+        state.log.writeCheckpointIfFull();
     }
 
     public read(): string | undefined {
@@ -500,152 +386,119 @@ class IndexedPage implements IPage {
 }
 
 class IndexState {
-    public subMetaPage: IPage;
-    public subMeta: LuaMap<Uuid, SubMeta>;
-
-    public procPage: IPage;
-    public proc?: Procedure;
-
+    public log: IndexLog;
     public indexCollection: IndexCollection;
-    public subStores: LuaMap<Uuid, IStoreCollection<IPage, IPageStore<IPage>>>;
-    public subStorePerNum: LuaMap<number, Uuid>;
-    public freeQueue: Deque<Uuid>;
-    public freeQueueMap: LuaMap<Uuid, DequeNode<Uuid>>;
-    public quotas: LuaMap<Uuid, number>;
+    public freeQueue: Deque<SubStoreNum>;
+    public freeQueueMap: LuaMap<SubStoreNum, DequeNode<SubStoreNum>>;
+    public quotas: LuaMap<SubStoreNum, number>;
+
+    public subStores: LuaMap<
+        SubStoreNum,
+        IStoreCollection<IPage, IPageStore<IPage>>
+    >;
 
     public constructor(
         cacheSize: number,
-        procPage: IPage,
-        subMetaPage: IPage,
+        indexLog: RecordLog,
         indexCollection: IStoreCollection<IPage, IPageStore<IPage>>,
-        subStores: LuaMap<Uuid, SubStore>,
+        subStores: LuaMap<SubStoreNum, SubStore>,
     ) {
+        this.log = new IndexLog(indexLog);
         this.indexCollection = new IndexCollection(cacheSize, indexCollection);
         this.subStores = new LuaMap();
         this.quotas = new LuaMap();
-        this.subStorePerNum = new LuaMap();
         this.freeQueue = new Deque();
         this.freeQueueMap = new LuaMap();
-
-        this.subMetaPage = subMetaPage;
-        const subMetaStr = subMetaPage.read();
-        if (subMetaStr) {
-            this.subMeta = textutils.unserialize(subMetaStr);
-        } else {
-            this.subMeta = new LuaMap();
-        }
-
-        this.procPage = procPage;
-        const procStr = procPage.read();
-        if (procStr) {
-            this.proc = textutils.unserialise(procStr);
-        }
-
-        for (const [uuid, meta] of this.subMeta) {
-            const [sub] = assert(subStores.get(uuid), "missing store " + uuid);
-            this.subStores.set(uuid, sub.collection);
-            this.quotas.set(uuid, sub.quota);
-            this.subStorePerNum.set(meta.indexNumber, uuid);
-            this.addToQueue(uuid, meta);
+        for (const [num] of this.log.usages) {
+            const [sub] = assert(subStores.get(num), "missing store " + num);
+            this.subStores.set(num, sub.collection);
+            this.quotas.set(num, sub.quota);
+            this.updateQueue(num);
         }
     }
 
-    public addToQueue(uuid: Uuid, meta: SubMeta) {
-        const free = assert(this.quotas.get(uuid)) - meta.numAllocated;
-        let node = this.freeQueue.first();
-        while (node) {
-            const nodeMeta = assert(this.subMeta.get(node.val));
-            const nodeQuota = assert(this.quotas.get(node.val));
-            const nodeFree = nodeQuota - nodeMeta.numAllocated;
-            if (nodeFree <= free) {
-                this.freeQueueMap.set(uuid, node.pushBefore(uuid));
-                return;
+    /** Updates the free node queue to reflect the log usage. */
+    public updateQueue(...nums: SubStoreNum[]) {
+        for (const num of nums) {
+            if (this.freeQueueMap.has(num)) {
+                assert(this.freeQueueMap.get(num)).pop();
+                this.freeQueueMap.delete(num);
             }
-            node = node.getNext();
         }
-        this.freeQueueMap.set(uuid, this.freeQueue.pushBack(uuid));
-    }
 
-    public delFromQueue(uuid: Uuid) {
-        this.freeQueueMap.delete(assert(this.freeQueueMap.get(uuid)).pop());
-    }
-
-    public incrStoreUsed(uuid: Uuid) {
-        const meta = assert(this.subMeta.get(uuid));
-        const free = assert(this.quotas.get(uuid)) - ++meta.numAllocated;
-        const node = assert(this.freeQueueMap.get(uuid));
-        let next = node.getNext();
-        node.pop();
-        while (next) {
-            const nextMeta = assert(this.subMeta.get(node.val));
-            const nextQuota = assert(this.quotas.get(node.val));
-            const nextFree = nextQuota - nextMeta.numAllocated;
-            if (nextFree <= free) {
-                this.freeQueueMap.set(uuid, next.pushBefore(uuid));
-                return;
+        for (const num of nums) {
+            const quota = assert(this.quotas.get(num));
+            const usage = assert(this.log.usages.get(num));
+            const free = quota - usage;
+            if (usage) {
+                let node = this.freeQueue.first();
+                while (node) {
+                    const nodeQuota = assert(this.quotas.get(node.val));
+                    const nodeUsage = assert(this.log.usages.get(node.val));
+                    const nodeFree = nodeQuota - nodeUsage;
+                    if (nodeFree <= free) {
+                        this.freeQueueMap.set(num, node.pushBefore(num));
+                        return;
+                    }
+                    node = node.getNext();
+                }
+                this.freeQueueMap.set(num, this.freeQueue.pushBack(num));
             }
-            next = next.getNext();
         }
-        this.freeQueueMap.set(uuid, this.freeQueue.pushBack(uuid));
     }
 
-    public decrStoreUsed(uuid: Uuid) {
-        const meta = assert(this.subMeta.get(uuid));
-        const free = assert(this.quotas.get(uuid)) - ++meta.numAllocated;
-        const node = assert(this.freeQueueMap.get(uuid));
-        let prev = node.getPrev();
-        node.pop();
-        while (prev) {
-            const prevMeta = assert(this.subMeta.get(node.val));
-            const prevQuota = assert(this.quotas.get(node.val));
-            const prevFree = prevQuota - prevMeta.numAllocated;
-            if (prevFree >= free) {
-                this.freeQueueMap.set(uuid, prev.pushAfter(uuid));
-                return;
+    public recoverLastProcedure() {
+        const proc = this.log.lastProcedure;
+        if (!proc) { return; }
+        if (proc.ty == RecordType.CREATE_PAGE) {
+            // Commits are signalled by the target existing. Rollback otherwise.
+            const coll = assert(this.subStores.get(proc.where));
+            const store = coll.getStore(proc.namespace);
+            const page = store.getPage(proc.pageNum);
+            if (!page.exists) {
+                // No file, append a delete procedure and recover again.
+                this.log.registerProcedure({
+                    ty: RecordType.DELETE_PAGE,
+                    namespace: proc.namespace,
+                    pageNum: proc.pageNum,
+                    where: proc.where,
+                });
+                this.updateQueue(proc.where);
+                this.recoverLastProcedure();
             }
-            prev = prev.getPrev();
+        } else if (proc.ty == RecordType.DELETE_PAGE) {
+            // Always commit.
+            const coll = assert(this.subStores.get(proc.where));
+            const store = coll.getStore(proc.namespace);
+            const page = store.getPage(proc.pageNum);
+            if (page.exists()) { page.delete(); }
+            const indexPage = this.indexCollection
+                .getIndexStore(proc.namespace)
+                .getPageIndexPage(proc.pageNum);
+            indexPage.delPageSubNum(proc.pageNum);
+            indexPage.save();
+        } else if (proc.ty == RecordType.MOVE_PAGE) {
+            // Commits are signalled by the target existing. Redo otherwise.
+            const srcColl = assert(this.subStores.get(proc.from));
+            const srcStore = srcColl.getStore(proc.namespace);
+            const srcPage = srcStore.getPage(proc.pageNum);
+            const tgtColl = assert(this.subStores.get(proc.to));
+            const tgtStore = tgtColl.getStore(proc.namespace);
+            const tgtPage = tgtStore.getPage(proc.pageNum);
+            if (!tgtPage.exists()) {
+                // No target file, set the index then copy it over.
+                const indexPage = this.indexCollection
+                    .getIndexStore(proc.namespace)
+                    .getPageIndexPage(proc.pageNum);
+                indexPage.setPageSubNum(proc.pageNum, proc.to);
+                indexPage.save();
+                tgtPage.create(srcPage.read());
+            }
+            if (srcPage.exists()) {
+                // Duplicate, delete source.
+                srcPage.delete();
+            }
         }
-        this.freeQueueMap.set(uuid, this.freeQueue.pushBack(uuid));
-    }
-
-    public commitSubMeta() {
-        this.subMetaPage.write(textutils.serialize(this.subMeta));
-        this.subMetaPage.flush();
-    }
-
-    public commitProc() {
-        this.procPage.write(textutils.serialize(this.proc));
-        this.procPage.flush();
+        this.log.writeCheckpoint();
     }
 }
-
-export type Uuid = string;
-
-export type SubMeta = {
-    indexNumber: number,
-    numAllocated: number,
-}
-
-export type Procedure =
-    | PageMoveProcedure
-    | PartialPageProcedure
-
-export enum ProcedureType {
-    MOVE_PAGE,
-    PARTIAL_PAGE,
-}
-
-export type PageMoveProcedure = {
-    ty: ProcedureType.MOVE_PAGE,
-    sourceUuid: string,
-    targetUuid: string,
-    namespace: string,
-    pageNum: number,
-}
-
-export type PartialPageProcedure = {
-    ty: ProcedureType.PARTIAL_PAGE,
-    namespace: string,
-    pageNum: number,
-}
-

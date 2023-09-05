@@ -2,7 +2,7 @@ import { ObjCache } from "../../ObjCache";
 import { IPage, IPageStore, IStoreCollection } from "../IPageStore";
 
 /** The maximum number of substores the index can refer to. */
-const MAX_INDEXED_SUBSTORES = 65535;
+export const MAX_INDEXED_SUBSTORES = 65535;
 
 /** How many bytes each index entry occupies. */
 const B_PER_ENTRY = math.ceil(math.log(1 + MAX_INDEXED_SUBSTORES, 256));
