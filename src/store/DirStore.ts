@@ -74,7 +74,7 @@ export class DirStoreCollection implements IStoreCollection<
         const out = new LuaSet<string>();
         for (const file of fs.find(this.dirPath + "/*")) {
             const [name] = string.match(file, "^(.*)_[0-9]+$");
-            if (name) { out.add(name); }
+            if (name == undefined) { out.add(name); }
         }
         return out;
     }

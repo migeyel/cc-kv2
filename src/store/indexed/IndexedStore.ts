@@ -475,7 +475,7 @@ class IndexedPage implements IPage {
 
     public openAppend(): void {
         const page = assert(this.page);
-        if (this.appendRefCount++ == 1) {
+        if (++this.appendRefCount == 1) {
             page.openAppend();
         }
     }
@@ -483,7 +483,7 @@ class IndexedPage implements IPage {
     public closeAppend(): void {
         const page = assert(this.page);
         assert(this.appendRefCount > 0);
-        if (this.appendRefCount-- == 0) {
+        if (--this.appendRefCount == 0) {
             page.closeAppend();
         }
     }
@@ -566,7 +566,7 @@ class IndexState {
 
     public incrStoreUsed(uuid: Uuid) {
         const meta = assert(this.subMeta.get(uuid));
-        const free = assert(this.quotas.get(uuid)) - meta.numAllocated++;
+        const free = assert(this.quotas.get(uuid)) - ++meta.numAllocated;
         const node = assert(this.freeQueueMap.get(uuid));
         let next = node.getNext();
         node.pop();
@@ -585,7 +585,7 @@ class IndexState {
 
     public decrStoreUsed(uuid: Uuid) {
         const meta = assert(this.subMeta.get(uuid));
-        const free = assert(this.quotas.get(uuid)) - meta.numAllocated++;
+        const free = assert(this.quotas.get(uuid)) - ++meta.numAllocated;
         const node = assert(this.freeQueueMap.get(uuid));
         let prev = node.getPrev();
         node.pop();
