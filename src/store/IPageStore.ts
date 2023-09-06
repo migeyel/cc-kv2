@@ -17,14 +17,20 @@ export type PageNum = number & { readonly __brand: unique symbol };
  * A (possibly non-existent) page in a page store.
  *
  * A page is a container for a data string, indexed by a nonnegative page
- * number. Pages can handle any sized strings but have a strongly preferred
- * maximum size for strings on them.
+ * number. Pages have a set maximum page size, and may throw errors if a larger
+ * value is written, depending on implementation.
  *
- * Pages tend to map 1:1 with a file in the disk and can be very efficiently
- * appended by keeping a file handle open.
+ * ## Pages are Shared
+ * Because they are meant to reflect global disk state, implementors must ensure
+ * that all references to the same page are always shared. Equality between
+ * pages can also be checked by checking if they are the same object.
+ *
+ * ## Writes may not Persist until Flushed
+ * Implementors may choose to not persist writes until later, or until `flush()`
+ * is called. If a page has no disk backing it may never persist.
  */
 export interface IPage {
-    /** The preferential maximum size for this page. */
+    /** The maximum size for contents in this page. */
     readonly pageSize: PageSize;
 
     /** The page number for this page. */
@@ -33,34 +39,82 @@ export interface IPage {
     /** Whether the page exists or not. */
     exists(): boolean;
 
-    /** Creates the page in the store. */
+    /**
+     * Creates the page in the store.
+     * @throws If the page already exists and is open for appending.
+     *
+     * If the page already exists but isn't open for appending, implementors are
+     * free to either throw or overwrite its contents with anything else.
+     */
     create(initialData?: string): void;
 
-    /** Creates the page and opens for append. */
+    /**
+     * Creates the page and opens for appending.
+     * @throws If the page already exists and is open for appending.
+     *
+     * If the page already exists but isn't open for appending, implementors are
+     * free to either throw or overwrite its contents with anything else.
+     */
     createOpen(): void;
 
-    /** Deletes the page from the store. */
+    /**
+     * Deletes the page from the store.
+     * @throws If the page is open for appending.
+     *
+     * If the page doesn't exist, implementors are free to throw or do nothing.
+     */
     delete(): void;
 
     /** Reads from the page. Returns nothing if it doesn't exist. */
     read(): string | undefined;
 
-    /** Writes to the page. */
+    /**
+     * Writes to the page.
+     * @throws If the page is open for appending.
+     *
+     * If the page doesn't exist, implementors are free to throw or overwrite
+     * their contents with anything else.
+     */
     write(data: string): void;
 
-    /** Appends data to the page. */
+    /**
+     * Appends data to the page.
+     * @throws If the page isn't open for appending.
+     */
     append(extra: string): void;
 
     /** Whether this page is open for appending. */
     canAppend(): boolean;
 
-    /** Opens the page for appending. */
+    /**
+     * Opens the page for appending.
+     * @throws If the page is already open for appending, since that often means
+     * a concurrent write attempt.
+     *
+     * If the page doesn't exist, implementors are free to throw or overwrite
+     * their contents with anything else.
+     */
     openAppend(): void;
 
-    /** Closes the page for appending. */
+    /**
+     * Closes the page for appending.
+     * @throws If the page is'nt open for appending, since that often means a
+     * concurrent write attempt.
+     */
     closeAppend(): void;
 
-    /** Flushes this page to disk. */
+    /**
+     * Flushes a page to disk.
+     * @throws If the page doesn't exist.
+     *
+     * When this function returns, and if the page has a disk backing, ensures
+     * that its contents will persist after a reboot.
+     *
+     * Flushing is atomic: the disk page's contents either contain the complete
+     * contents of the flush, or the complete contents before it, but nothing
+     * in between those. However, due to CC limitations, this may not apply in
+     * the event of a host power failure, hard reboot, or kernel panic.
+     */
     flush(): void;
 }
 

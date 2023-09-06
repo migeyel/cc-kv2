@@ -1,3 +1,4 @@
+import { ShMap } from "../ShMap";
 import {
     IPage,
     IPageStore,
@@ -14,13 +15,19 @@ export class MemCollection implements IStoreCollection<MemPage, MemStore> {
 
     private state = new MemState();
 
+    private stores = new ShMap<Namespace, MemStore>();
+
     public constructor(pageSize: PageSize) {
         this.pageSize = pageSize;
     }
 
     public getStore(namespace: Namespace): MemStore {
         assert(namespace.length <= MAX_NAMESPACE_LEN);
-        return new MemStore(this.pageSize, namespace, this.state);
+        return this.stores.getOr(namespace, () => new MemStore(
+            this.pageSize,
+            namespace,
+            this.state,
+        ));
     }
 
     public listStores(): LuaSet<Namespace> {
@@ -39,6 +46,8 @@ class MemStore implements IPageStore<MemPage> {
 
     private state: MemState;
 
+    private pages = new ShMap<PageNum, MemPage>();
+
     public constructor(
         pageSize: PageSize,
         namespace: Namespace,
@@ -50,7 +59,12 @@ class MemStore implements IPageStore<MemPage> {
     }
 
     public getPage(pageNum: PageNum): MemPage {
-        return new MemPage(this.pageSize, pageNum, this.namespace, this.state);
+        return this.pages.getOr(pageNum, () => new MemPage(
+            this.pageSize,
+            pageNum,
+            this.namespace,
+            this.state,
+        ));
     }
 
     public listPages(): LuaSet<PageNum> {
@@ -70,6 +84,8 @@ class MemPage implements IPage {
 
     private state: MemState;
 
+    private isAppend = false;
+
     public constructor(
         pageSize: PageSize,
         pageNum: PageNum,
@@ -86,15 +102,18 @@ class MemPage implements IPage {
         return this.read() != undefined;
     }
 
-    public create(initialData?: string | undefined): void {
+    public create(initialData?: string): void {
+        assert(!this.isAppend);
         this.state.setPage(this.namespace, this.pageNum, initialData || "");
     }
 
     public createOpen(): void {
+        assert(!this.isAppend);
         this.create();
     }
 
     public delete(): void {
+        assert(!this.isAppend);
         this.state.delPage(this.namespace, this.pageNum);
     }
 
@@ -103,20 +122,28 @@ class MemPage implements IPage {
     }
 
     public write(data: string): void {
+        assert(!this.isAppend);
         this.state.setPage(this.namespace, this.pageNum, data);
     }
 
     public append(extra: string): void {
+        assert(this.isAppend);
         this.write(this.read() + extra);
     }
 
     public canAppend(): boolean {
-        return true;
+        return this.isAppend;
     }
 
-    public openAppend(): void { }
+    public openAppend(): void {
+        assert(!this.isAppend);
+        this.isAppend = true;
+    }
 
-    public closeAppend(): void { }
+    public closeAppend(): void {
+        assert(this.isAppend);
+        this.isAppend = false;
+    }
 
     public flush(): void { }
 }

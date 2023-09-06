@@ -1,3 +1,4 @@
+import { ShMap } from "../ShMap";
 import {
     IPage,
     IStoreCollection,
@@ -40,6 +41,9 @@ export class DirStoreCollection implements IStoreCollection<
     /** The modifications subdir path. */
     private modPath: string;
 
+    /** The shared stores. */
+    private stores = new ShMap<Namespace, DirPageStore>();
+
     public constructor(dir: string, pageSize: PageSize) {
         this.pageSize = pageSize;
         this.dirPath = dir;
@@ -71,12 +75,12 @@ export class DirStoreCollection implements IStoreCollection<
 
     public getStore(namespace: Namespace): DirPageStore {
         assert(namespace.length <= MAX_NAMESPACE_LEN);
-        return new DirPageStore(
+        return this.stores.getOr(namespace, () => new DirPageStore(
             this.pageSize,
             this.dirPath,
             this.modPath,
             namespace,
-        );
+        ));
     }
 
     public listStores(): LuaSet<Namespace> {
@@ -99,6 +103,9 @@ class DirPageStore implements IPageStore<DirPage> {
     /** The path prefix for modification in the store. */
     private modPrefix: string;
 
+    /** The shared pages. */
+    private pages = new ShMap<PageNum, DirPage>();
+
     public constructor(
         pageSize: PageSize,
         dirPath: string,
@@ -111,12 +118,12 @@ class DirPageStore implements IPageStore<DirPage> {
     }
 
     public getPage(pageNum: PageNum): DirPage {
-        return new DirPage(
+        return this.pages.getOr(pageNum, () => new DirPage(
             this.pageSize,
             this.filePrefix,
             this.modPrefix,
             pageNum,
-        );
+        ));
     }
 
     public listPages(): LuaSet<PageNum> {
@@ -143,7 +150,7 @@ class DirPage implements IPage {
     private fileModPrefix: string;
 
     /** The currently open handle. */
-    private handle: FileHandle | undefined;
+    private handle?: FileHandle;
 
     public constructor(
         pageSize: PageSize,
@@ -162,6 +169,7 @@ class DirPage implements IPage {
     }
 
     public create(initialData?: string): void {
+        assert(!this.handle);
         if (initialData) {
             // Mark the data as del so an incomplete write deletes it.
             const delPath = this.fileModPrefix + DEL_SUFFIX;
@@ -181,10 +189,12 @@ class DirPage implements IPage {
     }
 
     public createOpen(): void {
+        assert(!this.handle);
         this.handle = assert(fs.open(this.filePath, "wb")[0]);
     }
 
     public delete(): void {
+        assert(!this.handle);
         fs.delete(this.filePath);
     }
 
@@ -203,6 +213,8 @@ class DirPage implements IPage {
     }
 
     public write(data: string): void {
+        assert(!this.handle);
+
         // Mark the data as new so an incomplete write ignores it.
         const newPath = this.fileModPrefix + NEW_SUFFIX;
         const [newFile, err] = fs.open(newPath, "wb");
@@ -216,8 +228,9 @@ class DirPage implements IPage {
     }
 
     public append(data: string): void {
-        this.handle!.write(data);
-        this.handle!.flush();
+        const handle = assert(this.handle);
+        handle.write(data);
+        handle.flush();
     }
 
     public canAppend(): boolean {
@@ -225,11 +238,12 @@ class DirPage implements IPage {
     }
 
     public openAppend(): void {
+        assert(!this.handle);
         this.handle = assert(fs.open(this.filePath, "ab")[0]);
     }
 
     public closeAppend(): void {
-        this.handle!.close();
+        assert(this.handle).close();
     }
 
     public flush(): void { }

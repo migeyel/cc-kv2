@@ -1,4 +1,3 @@
-import { ObjCache } from "../../ObjCache";
 import { Deque, DequeNode } from "../../Deque";
 import {
     IPage,
@@ -12,6 +11,7 @@ import {
 import { IndexCollection, IndexPage, MAX_INDEXED_SUBSTORES } from "./Index";
 import { RecordLog } from "../../RecordLog";
 import { IndexLog, RecordType, SubStoreNum } from "./IndexLog";
+import { ShMap } from "../../ShMap";
 
 export type SubStore = {
     collection: IStoreCollection<IPage, IPageStore<IPage>>,
@@ -27,8 +27,7 @@ export class IndexedCollection implements IStoreCollection<
 
     private state: IndexState;
 
-    // We need to share stores because they need to share pages.
-    private stores: ObjCache<Namespace, IndexedStore>;
+    private stores = new ShMap<Namespace, IndexedStore>();
 
     public constructor(
         pageSize: PageSize,
@@ -37,19 +36,8 @@ export class IndexedCollection implements IStoreCollection<
         indexCollection: IStoreCollection<IPage, IPageStore<IPage>>,
         subStores: LuaMap<SubStoreNum, SubStore>,
     ) {
-        const getter = (namespace: Namespace) => {
-            return new IndexedStore(
-                cacheSize,
-                this.state,
-                this.pageSize,
-                namespace,
-            );
-        };
-
-        this.stores = new ObjCache(cacheSize, getter);
         this.pageSize = pageSize;
         this.state = new IndexState(
-            cacheSize,
             indexLog,
             indexCollection,
             subStores,
@@ -65,7 +53,6 @@ export class IndexedCollection implements IStoreCollection<
     ) {
         // Wrap the collection as some index state for encoding.
         const state = new IndexState(
-            16,
             indexLog,
             indexCollection,
             subStores,
@@ -90,7 +77,11 @@ export class IndexedCollection implements IStoreCollection<
 
     public getStore(namespace: Namespace): IndexedStore {
         assert(namespace.length <= MAX_NAMESPACE_LEN);
-        return this.stores.get(namespace);
+        return this.stores.getOr(namespace, () => new IndexedStore(
+            this.state,
+            this.pageSize,
+            namespace,
+        ));
     }
 
     public listStores(): LuaSet<Namespace> {
@@ -146,33 +137,25 @@ class IndexedStore implements IPageStore<IndexedPage> {
 
     private state: IndexState;
 
-    // We need to share pages because they reflect global disk state (location
-    // of the page in a store, and whether the page can be appended).
-    private pages: ObjCache<PageNum, IndexedPage>;
+    private pages = new ShMap<PageNum, IndexedPage>();
 
     public constructor(
-        cacheSize: number,
         state: IndexState,
         pageSize: PageSize,
         namespace: Namespace,
     ) {
-        const getter = (pageNum: PageNum) => {
-            return new IndexedPage(
-                this.state,
-                this.pageSize,
-                this.namespace,
-                pageNum,
-            );
-        };
-
-        this.pages = new ObjCache(cacheSize, getter);
         this.state = state;
         this.pageSize = pageSize;
         this.namespace = namespace;
     }
 
     public getPage(pageNum: PageNum): IndexedPage {
-        return this.pages.get(pageNum);
+        return this.pages.getOr(pageNum, () => new IndexedPage(
+            this.state,
+            this.pageSize,
+            this.namespace,
+            pageNum,
+        ));
     }
 
     public listPages(): LuaSet<PageNum> {
@@ -198,9 +181,6 @@ class IndexedPage implements IPage {
 
     /** The underlying page, iff it is allocated. */
     private page?: IPage;
-
-    /** Refcount for the append handle. We need it since pages are shared. */
-    private appendRefCount = 0;
 
     private state: IndexState;
 
@@ -283,7 +263,6 @@ class IndexedPage implements IPage {
         this.indexPage.save();
         this.page = page;
         this.page.createOpen();
-        this.appendRefCount = 1;
 
         // Finish the procedure in memory.
         state.log.writeCheckpointIfFull();
@@ -291,6 +270,7 @@ class IndexedPage implements IPage {
 
     public delete(): void {
         const [page] = assert(this.page, "page doesn't exist");
+        assert(!page.canAppend(), "page is open for appending");
         const state = this.state;
         const where = assert(this.indexPage.getPageSubNum(this.pageNum));
 
@@ -304,17 +284,16 @@ class IndexedPage implements IPage {
         state.updateQueue(where);
 
         // Delete (directory, then index).
-        if (this.appendRefCount > 0) { page.closeAppend(); }
         page.delete();
         this.indexPage.delPageSubNum(this.pageNum);
         this.indexPage.save();
 
         // Finish the procedure in memory.
         this.page = undefined;
-        this.appendRefCount = 0;
         state.log.writeCheckpointIfFull();
     }
 
+    /** Moves a page to another sub-store. */
     public move(target: SubStoreNum) {
         const [srcPage] = assert(this.page, "page doesn't exist");
         const state = this.state;
@@ -341,13 +320,14 @@ class IndexedPage implements IPage {
         this.indexPage.save();
 
         // Copy the page over.
-        if (this.appendRefCount > 0) { srcPage.closeAppend(); }
+        const srcCanAppend = srcPage.canAppend();
+        if (srcCanAppend) { srcPage.closeAppend(); }
         tgtPage.create(srcPage.read());
         srcPage.delete();
 
         // Finish the procedure in memory.
         this.page = tgtPage;
-        if (this.appendRefCount > 0) { tgtPage.openAppend(); }
+        if (srcCanAppend) { tgtPage.openAppend(); }
         state.log.writeCheckpointIfFull();
     }
 
@@ -356,31 +336,33 @@ class IndexedPage implements IPage {
     }
 
     public write(data: string): void {
-        return this.page?.write(data);
+        const [page] = assert(this.page, "page doesn't exist");
+        assert(!page.canAppend(), "page is open for appending");
+        return page?.write(data);
     }
 
     public append(extra: string): void {
-        assert(this.appendRefCount > 0);
-        assert(this.page).append(extra);
+        const [page] = assert(this.page, "page doesn't exist");
+        assert(page.canAppend(), "page isn't open for appending");
+        page.append(extra);
     }
 
     public canAppend(): boolean {
-        return this.appendRefCount > 0;
+        const page = this.page;
+        if (!page) { return false; }
+        return page.canAppend();
     }
 
     public openAppend(): void {
-        const page = assert(this.page);
-        if (++this.appendRefCount == 1) {
-            page.openAppend();
-        }
+        const [page] = assert(this.page, "page doesn't exist");
+        assert(!page.canAppend(), "page is open for appending");
+        page.openAppend();
     }
 
     public closeAppend(): void {
-        const page = assert(this.page);
-        assert(this.appendRefCount > 0);
-        if (--this.appendRefCount == 0) {
-            page.closeAppend();
-        }
+        const [page] = assert(this.page, "page doesn't exist");
+        assert(page.canAppend(), "page isn't open for appending");
+        page.openAppend();
     }
 
     public flush(): void {
@@ -401,13 +383,12 @@ class IndexState {
     >;
 
     public constructor(
-        cacheSize: number,
         indexLog: RecordLog,
         indexCollection: IStoreCollection<IPage, IPageStore<IPage>>,
         subStores: LuaMap<SubStoreNum, SubStore>,
     ) {
         this.log = new IndexLog(indexLog);
-        this.indexCollection = new IndexCollection(cacheSize, indexCollection);
+        this.indexCollection = new IndexCollection(indexCollection);
         this.subStores = new LuaMap();
         this.quotas = new LuaMap();
         this.freeQueue = new Deque();

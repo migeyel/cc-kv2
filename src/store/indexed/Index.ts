@@ -1,4 +1,4 @@
-import { ObjCache } from "../../ObjCache";
+import { ShMap } from "../../ShMap";
 import {
     IPage,
     IPageStore,
@@ -21,28 +21,20 @@ export class IndexCollection {
 
     private nullStr: string;
 
-    // We need to share stores because we need to share pages.
-    private stores: ObjCache<Namespace, IndexStore>;
+    private stores = new ShMap<Namespace, IndexStore>();
 
     public constructor(
-        cacheSize: number,
         collection: IStoreCollection<IPage, IPageStore<IPage>>,
     ) {
-        const getter = (namespace: Namespace) => {
-            return new IndexStore(
-                cacheSize,
-                this.collection.getStore(namespace),
-                this.nullStr,
-            );
-        };
-
         this.nullStr = string.rep("\0", collection.pageSize);
         this.collection = collection;
-        this.stores = new ObjCache(cacheSize, getter);
     }
 
     public getIndexStore(namespace: Namespace): IndexStore {
-        return this.stores.get(namespace);
+        return this.stores.getOr(namespace, () => new IndexStore(
+            this.collection.getStore(namespace),
+            this.nullStr,
+        ));
     }
 }
 
@@ -52,32 +44,23 @@ export class IndexStore {
 
     private nullStr: string;
 
-    // We need to share pages because they reflect global disk state (contents
-    // of the index page).
-    private pages: ObjCache<PageNum, IndexPage>;
+    private pages = new ShMap<PageNum, IndexPage>();
 
     public constructor(
-        cacheSize: number,
         store: IPageStore<IPage>,
         nullStr: string,
     ) {
-        const getter = (pageNum: PageNum) => {
-            return new IndexPage(
-                this.store.getPage(pageNum),
-                this.nullStr,
-            );
-        };
-
         this.store = store;
         this.nullStr = nullStr;
-        this.pages = new ObjCache(cacheSize, getter);
     }
 
     public getPageIndexPage(dataPageNum: number): IndexPage {
         const entriesPerPage = math.floor(this.store.pageSize / B_PER_ENTRY);
-        return this.pages.get(
-            math.floor(dataPageNum / entriesPerPage) as PageNum,
-        );
+        const pageNum = math.floor(dataPageNum / entriesPerPage) as PageNum;
+        return this.pages.getOr(pageNum, () => new IndexPage(
+            this.store.getPage(pageNum),
+            this.nullStr,
+        ));
     }
 }
 
