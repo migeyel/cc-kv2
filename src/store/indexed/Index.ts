@@ -1,5 +1,12 @@
 import { ObjCache } from "../../ObjCache";
-import { IPage, IPageStore, IStoreCollection } from "../IPageStore";
+import {
+    IPage,
+    IPageStore,
+    IStoreCollection,
+    Namespace,
+    PageNum,
+} from "../IPageStore";
+import { SubStoreNum } from "./IndexLog";
 
 /** The maximum number of substores the index can refer to. */
 export const MAX_INDEXED_SUBSTORES = 65535;
@@ -15,13 +22,13 @@ export class IndexCollection {
     private nullStr: string;
 
     // We need to share stores because we need to share pages.
-    private stores: ObjCache<string, IndexStore>;
+    private stores: ObjCache<Namespace, IndexStore>;
 
     public constructor(
         cacheSize: number,
         collection: IStoreCollection<IPage, IPageStore<IPage>>,
     ) {
-        const getter = (namespace: string) => {
+        const getter = (namespace: Namespace) => {
             return new IndexStore(
                 cacheSize,
                 this.collection.getStore(namespace),
@@ -34,7 +41,7 @@ export class IndexCollection {
         this.stores = new ObjCache(cacheSize, getter);
     }
 
-    public getIndexStore(namespace: string): IndexStore {
+    public getIndexStore(namespace: Namespace): IndexStore {
         return this.stores.get(namespace);
     }
 }
@@ -47,14 +54,14 @@ export class IndexStore {
 
     // We need to share pages because they reflect global disk state (contents
     // of the index page).
-    private pages: ObjCache<number, IndexPage>;
+    private pages: ObjCache<PageNum, IndexPage>;
 
     public constructor(
         cacheSize: number,
         store: IPageStore<IPage>,
         nullStr: string,
     ) {
-        const getter = (pageNum: number) => {
+        const getter = (pageNum: PageNum) => {
             return new IndexPage(
                 this.store.getPage(pageNum),
                 this.nullStr,
@@ -68,7 +75,9 @@ export class IndexStore {
 
     public getPageIndexPage(dataPageNum: number): IndexPage {
         const entriesPerPage = math.floor(this.store.pageSize / B_PER_ENTRY);
-        return this.pages.get(math.floor(dataPageNum / entriesPerPage));
+        return this.pages.get(
+            math.floor(dataPageNum / entriesPerPage) as PageNum,
+        );
     }
 }
 
@@ -111,7 +120,7 @@ export class IndexPage {
         return this.setPageSubNum(pageNum, 0);
     }
 
-    public getPageSubNum(pageNum: number): number | undefined {
+    public getPageSubNum(pageNum: number): SubStoreNum | undefined {
         const entriesPerPage = math.floor(this.page.pageSize / B_PER_ENTRY);
         const rem = pageNum % entriesPerPage;
         assert((pageNum - rem) / entriesPerPage == this.page.pageNum);

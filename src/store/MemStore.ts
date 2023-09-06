@@ -3,49 +3,58 @@ import {
     IPageStore,
     IStoreCollection,
     MAX_NAMESPACE_LEN,
+    Namespace,
+    PageNum,
+    PageSize,
 } from "./IPageStore";
 
 /** An in-memory store impplementation. */
 export class MemCollection implements IStoreCollection<MemPage, MemStore> {
-    public readonly pageSize: number;
+    public readonly pageSize: PageSize;
 
     private state = new MemState();
 
-    public constructor(pageSize: number) {
+    public constructor(pageSize: PageSize) {
         this.pageSize = pageSize;
     }
 
-    public getStore(namespace: string): MemStore {
+    public getStore(namespace: Namespace): MemStore {
         assert(namespace.length <= MAX_NAMESPACE_LEN);
         return new MemStore(this.pageSize, namespace, this.state);
     }
 
-    public listStores(): LuaSet<string> {
-        const out = new LuaSet<string>();
-        for (const [store] of this.state.stores) { out.add(store); }
+    public listStores(): LuaSet<Namespace> {
+        const out = new LuaSet<Namespace>();
+        for (const [store] of this.state.stores) {
+            out.add(store as Namespace);
+        }
         return out;
     }
 }
 
 class MemStore implements IPageStore<MemPage> {
-    public readonly pageSize: number;
+    public readonly pageSize: PageSize;
 
-    private namespace: string;
+    private namespace: Namespace;
 
     private state: MemState;
 
-    public constructor(pageSize: number, namespace: string, state: MemState) {
+    public constructor(
+        pageSize: PageSize,
+        namespace: Namespace,
+        state: MemState,
+    ) {
         this.pageSize = pageSize;
         this.namespace = namespace;
         this.state = state;
     }
 
-    public getPage(pageNum: number): MemPage {
+    public getPage(pageNum: PageNum): MemPage {
         return new MemPage(this.pageSize, pageNum, this.namespace, this.state);
     }
 
-    public listPages(): LuaSet<number> {
-        const out = new LuaSet<number>();
+    public listPages(): LuaSet<PageNum> {
+        const out = new LuaSet<PageNum>();
         const store = this.state.stores.get(this.namespace);
         if (store) { for (const [page] of store) { out.add(page); } }
         return out;
@@ -53,18 +62,18 @@ class MemStore implements IPageStore<MemPage> {
 }
 
 class MemPage implements IPage {
-    public readonly pageSize: number;
+    public readonly pageSize: PageSize;
 
-    public readonly pageNum: number;
+    public readonly pageNum: PageNum;
 
-    private namespace: string;
+    private namespace: Namespace;
 
     private state: MemState;
 
     public constructor(
-        pageSize: number,
-        pageNum: number,
-        namespace: string,
+        pageSize: PageSize,
+        pageNum: PageNum,
+        namespace: Namespace,
         state: MemState,
     ) {
         this.pageSize = pageSize;
@@ -113,9 +122,9 @@ class MemPage implements IPage {
 }
 
 class MemState {
-    public stores = new LuaMap<string, LuaMap<number, string>>();
+    public stores = new LuaMap<Namespace, LuaMap<PageNum, string>>();
 
-    public setPage(namespace: string, pageNum: number, data: string) {
+    public setPage(namespace: Namespace, pageNum: PageNum, data: string) {
         let store = this.stores.get(namespace);
         if (!store) {
             store = new LuaMap();
@@ -124,13 +133,13 @@ class MemState {
         store.set(pageNum, data);
     }
 
-    public getPage(namespace: string, pageNum: number): string | undefined {
+    public getPage(namespace: Namespace, pageNum: PageNum): string | undefined {
         const store = this.stores.get(namespace);
         if (!store) { return; }
         return store.get(pageNum);
     }
 
-    public delPage(namespace: string, pageNum: number) {
+    public delPage(namespace: Namespace, pageNum: PageNum) {
         const store = this.stores.get(namespace);
         if (!store) { return; }
         store.delete(pageNum);

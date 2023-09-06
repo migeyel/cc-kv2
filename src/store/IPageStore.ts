@@ -4,6 +4,15 @@ export const MAX_NAMESPACE_LEN = 32;
 /** The maximum page number a store can hold. */
 export const MAX_PAGE_NUM = 2 ** 48 - 1;
 
+/** A named collection of pages in a store. */
+export type Namespace = string & { readonly __brand: unique symbol };
+
+/** A page size. */
+export type PageSize = number & { readonly __brand: unique symbol };
+
+/** A page number. */
+export type PageNum = number & { readonly __brand: unique symbol };
+
 /**
  * A (possibly non-existent) page in a page store.
  *
@@ -16,10 +25,10 @@ export const MAX_PAGE_NUM = 2 ** 48 - 1;
  */
 export interface IPage {
     /** The preferential maximum size for this page. */
-    readonly pageSize: number;
+    readonly pageSize: PageSize;
 
     /** The page number for this page. */
-    readonly pageNum: number;
+    readonly pageNum: PageNum;
 
     /** Whether the page exists or not. */
     exists(): boolean;
@@ -60,13 +69,13 @@ export interface IPage {
  */
 export interface IPageStore<P extends IPage> {
     /** The preferential maximum page size for pages in the store. */
-    readonly pageSize: number;
+    readonly pageSize: PageSize;
 
     /** Specifies a page in the store. */
-    getPage(pageNum: number): P;
+    getPage(pageNum: PageNum): P;
 
     /** Lists all pages in the store. */
-    listPages(): LuaSet<number>;
+    listPages(): LuaSet<PageNum>;
 }
 
 /**
@@ -74,11 +83,11 @@ export interface IPageStore<P extends IPage> {
  */
 export interface IStoreCollection<P extends IPage, S extends IPageStore<P>> {
     /** The preferential maximum page size for pages in the collection. */
-    readonly pageSize: number;
+    readonly pageSize: PageSize;
 
     /** Specifies a store in the collection. */
-    getStore(namespace: string): S;
+    getStore(namespace: Namespace): S;
 
     /** Lists all stores with at least one page in the collection. */
-    listStores(): LuaSet<string>;
+    listStores(): LuaSet<Namespace>;
 }

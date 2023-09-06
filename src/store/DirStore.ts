@@ -3,6 +3,9 @@ import {
     IStoreCollection,
     IPageStore,
     MAX_NAMESPACE_LEN,
+    Namespace,
+    PageSize,
+    PageNum,
 } from "./IPageStore";
 
 /** The subdirectory for storing store modifications. */
@@ -29,7 +32,7 @@ export class DirStoreCollection implements IStoreCollection<
     DirPage,
     DirPageStore
 > {
-    public readonly pageSize: number;
+    public readonly pageSize: PageSize;
 
     /** The directory path. */
     private dirPath: string;
@@ -37,7 +40,7 @@ export class DirStoreCollection implements IStoreCollection<
     /** The modifications subdir path. */
     private modPath: string;
 
-    public constructor(dir: string, pageSize: number) {
+    public constructor(dir: string, pageSize: PageSize) {
         this.pageSize = pageSize;
         this.dirPath = dir;
         this.modPath = fs.combine(dir, MOD_SUBDIR);
@@ -66,7 +69,7 @@ export class DirStoreCollection implements IStoreCollection<
         }
     }
 
-    public getStore(namespace: string): DirPageStore {
+    public getStore(namespace: Namespace): DirPageStore {
         assert(namespace.length <= MAX_NAMESPACE_LEN);
         return new DirPageStore(
             this.pageSize,
@@ -76,19 +79,19 @@ export class DirStoreCollection implements IStoreCollection<
         );
     }
 
-    public listStores(): LuaSet<string> {
-        const out = new LuaSet<string>();
+    public listStores(): LuaSet<Namespace> {
+        const out = new LuaSet<Namespace>();
         for (const path of fs.find(this.dirPath + "/*")) {
             const file = fs.getName(path);
             const [name] = string.match(file, "^(.*)_[0-9]+$");
-            if (name != undefined) { out.add(name); }
+            if (name != undefined) { out.add(name as Namespace); }
         }
         return out;
     }
 }
 
 class DirPageStore implements IPageStore<DirPage> {
-    public readonly pageSize: number;
+    public readonly pageSize: PageSize;
 
     /** The path prefix for files in the store. */
     private filePrefix: string;
@@ -97,17 +100,17 @@ class DirPageStore implements IPageStore<DirPage> {
     private modPrefix: string;
 
     public constructor(
-        pageSize: number,
+        pageSize: PageSize,
         dirPath: string,
         modPath: string,
-        namespace: string,
+        namespace: Namespace,
     ) {
         this.pageSize = pageSize;
         this.filePrefix = fs.combine(dirPath, namespace + "_");
         this.modPrefix = fs.combine(modPath, namespace + "_");
     }
 
-    public getPage(pageNum: number): DirPage {
+    public getPage(pageNum: PageNum): DirPage {
         return new DirPage(
             this.pageSize,
             this.filePrefix,
@@ -116,21 +119,22 @@ class DirPageStore implements IPageStore<DirPage> {
         );
     }
 
-    public listPages(): LuaSet<number> {
-        const out = new LuaSet<number>();
+    public listPages(): LuaSet<PageNum> {
+        const out = new LuaSet<PageNum>();
         for (const path of fs.find(this.filePrefix + "*")) {
             const file = fs.getName(path);
             const match = string.match(file, "_([0-9]+)$")[0];
-            if (match != undefined) { out.add(assert(tonumber(match))); }
+            const pageNum = assert(tonumber(match)) as PageNum;
+            if (match != undefined) { out.add(pageNum); }
         }
         return out;
     }
 }
 
 class DirPage implements IPage {
-    public readonly pageSize: number;
+    public readonly pageSize: PageSize;
 
-    public readonly pageNum: number;
+    public readonly pageNum: PageNum;
 
     /** The file path. */
     private filePath: string;
@@ -142,10 +146,10 @@ class DirPage implements IPage {
     private handle: FileHandle | undefined;
 
     public constructor(
-        pageSize: number,
+        pageSize: PageSize,
         filePrefix: string,
         modPrefix: string,
-        pageNum: number,
+        pageNum: PageNum,
     ) {
         this.pageNum = pageNum;
         this.pageSize = pageSize;

@@ -5,6 +5,9 @@ import {
     IPageStore,
     IStoreCollection,
     MAX_NAMESPACE_LEN,
+    Namespace,
+    PageNum,
+    PageSize,
 } from "../IPageStore";
 import { IndexCollection, IndexPage, MAX_INDEXED_SUBSTORES } from "./Index";
 import { RecordLog } from "../../RecordLog";
@@ -20,21 +23,21 @@ export class IndexedCollection implements IStoreCollection<
     IndexedPage,
     IndexedStore
 > {
-    public readonly pageSize: number;
+    public readonly pageSize: PageSize;
 
     private state: IndexState;
 
     // We need to share stores because they need to share pages.
-    private stores: ObjCache<string, IndexedStore>;
+    private stores: ObjCache<Namespace, IndexedStore>;
 
     public constructor(
-        pageSize: number,
+        pageSize: PageSize,
         cacheSize: number,
         indexLog: RecordLog,
         indexCollection: IStoreCollection<IPage, IPageStore<IPage>>,
-        subStores: LuaMap<number, SubStore>,
+        subStores: LuaMap<SubStoreNum, SubStore>,
     ) {
-        const getter = (namespace: string) => {
+        const getter = (namespace: Namespace) => {
             return new IndexedStore(
                 cacheSize,
                 this.state,
@@ -58,7 +61,7 @@ export class IndexedCollection implements IStoreCollection<
     public static repopulateIndex(
         indexLog: RecordLog,
         indexCollection: IStoreCollection<IPage, IPageStore<IPage>>,
-        subStores: LuaMap<number, SubStore>,
+        subStores: LuaMap<SubStoreNum, SubStore>,
     ) {
         // Wrap the collection as some index state for encoding.
         const state = new IndexState(
@@ -85,13 +88,13 @@ export class IndexedCollection implements IStoreCollection<
         }
     }
 
-    public getStore(namespace: string): IndexedStore {
+    public getStore(namespace: Namespace): IndexedStore {
         assert(namespace.length <= MAX_NAMESPACE_LEN);
         return this.stores.get(namespace);
     }
 
-    public listStores(): LuaSet<string> {
-        const out = new LuaSet<string>();
+    public listStores(): LuaSet<Namespace> {
+        const out = new LuaSet<Namespace>();
         for (const [_, sub] of this.state.subStores) {
             for (const page of sub.listStores()) {
                 out.add(page);
@@ -137,23 +140,23 @@ export class IndexedCollection implements IStoreCollection<
 }
 
 class IndexedStore implements IPageStore<IndexedPage> {
-    public readonly pageSize: number;
+    public readonly pageSize: PageSize;
 
-    private namespace: string;
+    private namespace: Namespace;
 
     private state: IndexState;
 
     // We need to share pages because they reflect global disk state (location
     // of the page in a store, and whether the page can be appended).
-    private pages: ObjCache<number, IndexedPage>;
+    private pages: ObjCache<PageNum, IndexedPage>;
 
     public constructor(
         cacheSize: number,
         state: IndexState,
-        pageSize: number,
-        namespace: string,
+        pageSize: PageSize,
+        namespace: Namespace,
     ) {
-        const getter = (pageNum: number) => {
+        const getter = (pageNum: PageNum) => {
             return new IndexedPage(
                 this.state,
                 this.pageSize,
@@ -168,12 +171,12 @@ class IndexedStore implements IPageStore<IndexedPage> {
         this.namespace = namespace;
     }
 
-    public getPage(pageNum: number): IndexedPage {
+    public getPage(pageNum: PageNum): IndexedPage {
         return this.pages.get(pageNum);
     }
 
-    public listPages(): LuaSet<number> {
-        const out = new LuaSet<number>();
+    public listPages(): LuaSet<PageNum> {
+        const out = new LuaSet<PageNum>();
         for (const [_, sub] of this.state.subStores) {
             for (const page of sub.getStore(this.namespace).listPages()) {
                 out.add(page);
@@ -184,11 +187,11 @@ class IndexedStore implements IPageStore<IndexedPage> {
 }
 
 class IndexedPage implements IPage {
-    public readonly pageSize: number;
+    public readonly pageSize: PageSize;
 
-    public readonly pageNum: number;
+    public readonly pageNum: PageNum;
 
-    private namespace: string;
+    private namespace: Namespace;
 
     /** The index page that resolves this page's number. */
     private indexPage: IndexPage;
@@ -203,9 +206,9 @@ class IndexedPage implements IPage {
 
     public constructor(
         state: IndexState,
-        pageSize: number,
-        namespace: string,
-        pageNum: number,
+        pageSize: PageSize,
+        namespace: Namespace,
+        pageNum: PageNum,
     ) {
         this.state = state;
         this.pageSize = pageSize;

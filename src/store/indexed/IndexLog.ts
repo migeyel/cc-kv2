@@ -1,5 +1,10 @@
 import { RecordLog } from "../../RecordLog";
-import { MAX_NAMESPACE_LEN, MAX_PAGE_NUM } from "../IPageStore";
+import {
+    MAX_NAMESPACE_LEN,
+    MAX_PAGE_NUM,
+    Namespace,
+    PageNum,
+} from "../IPageStore";
 import { MAX_INDEXED_SUBSTORES } from "./Index";
 
 function fmtLen(maximum: number): string {
@@ -19,7 +24,7 @@ export enum RecordType {
     MOVE_PAGE,
 }
 
-export type SubStoreNum = number;
+export type SubStoreNum = number & { readonly __brand: unique symbol };
 
 type CheckpointRecord = {
     ty: RecordType.CHECKPOINT,
@@ -30,8 +35,8 @@ const CHECKPOINT_FMT_PRE = "<B" + SUB_STORE_FMT;
 
 type CreatePage = {
     ty: RecordType.CREATE_PAGE,
-    namespace: string,
-    pageNum: number,
+    namespace: Namespace,
+    pageNum: PageNum,
     where: SubStoreNum,
 }
 
@@ -39,8 +44,8 @@ const CREATE_PAGE_FMT = "<B" + NAMESPACE_FMT + PAGE_FMT + SUB_STORE_FMT;
 
 type DeletePage = {
     ty: RecordType.DELETE_PAGE,
-    namespace: string,
-    pageNum: number,
+    namespace: Namespace,
+    pageNum: PageNum,
     where: SubStoreNum,
 }
 
@@ -62,8 +67,8 @@ const DELETE_SUB_STORE_FMT = "<B" + SUB_STORE_FMT;
 
 type MovePage = {
     ty: RecordType.MOVE_PAGE,
-    namespace: string,
-    pageNum: number,
+    namespace: Namespace,
+    pageNum: PageNum,
     from: SubStoreNum,
     to: SubStoreNum,
 };
@@ -138,7 +143,7 @@ export function decodeRecord(str: string): IndexRecord {
         const stores: number[] = string.unpack(fmt, str, pos);
         const substores = new LuaMap<SubStoreNum, number>();
         for (const i of $range(0, len - 1)) {
-            substores.set(stores[2 * i], stores[2 * i + 1]);
+            substores.set(stores[2 * i] as SubStoreNum, stores[2 * i + 1]);
         }
         return { ty, substores };
     } else if (ty == RecordType.CREATE_PAGE) {
@@ -239,7 +244,7 @@ export class IndexLog {
         if (record.ty == RecordType.CHECKPOINT) {
             this.usages = record.substores;
             this.numUsages = 0;
-            for (const _ of this.usages) { this.numUsages++; }
+            for (const [_] of this.usages) { this.numUsages++; }
             this.lastProcedure = undefined;
         } else if (record.ty == RecordType.CREATE_PAGE) {
             const usage = assert(this.usages.get(record.where));

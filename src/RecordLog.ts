@@ -1,4 +1,4 @@
-import { IPage, IPageStore } from "./store/IPageStore";
+import { IPage, IPageStore, PageNum } from "./store/IPageStore";
 
 /** An append-only log of string records. */
 export class RecordLog {
@@ -70,7 +70,8 @@ export class RecordLog {
     private turnTailPage() {
         this.tailPage.append(this.tailBuf);
         this.tailPage.closeAppend();
-        this.tailPage = this.store.getPage(this.tailPage.pageNum + 1);
+        const newPageNum = (this.tailPage.pageNum + 1) as PageNum;
+        this.tailPage = this.store.getPage(newPageNum);
         this.tailPage.createOpen();
         this.tailBuf = "";
         this.tailSize = 0;
@@ -101,7 +102,7 @@ export class RecordLog {
         const trimPageNum = math.floor(trimLsn / this.pageSize);
         const trimEnd = math.min(trimPageNum, this.tailPage.pageNum) - 1;
         for (const i of $range(this.headPageNum, trimEnd)) {
-            this.store.getPage(i).delete();
+            this.store.getPage(i as PageNum).delete();
         }
         if  (trimEnd + 1 != this.headPageNum) {
             this.headPageNum = trimEnd + 1;
@@ -121,7 +122,7 @@ export class RecordLog {
     > {
         const rem = lsn % this.pageSize;
         const div = (lsn - rem) / this.pageSize;
-        const str = this.readPage(this.store.getPage(div));
+        const str = this.readPage(this.store.getPage(div as PageNum));
         if (!str) { return $multi(undefined, undefined); }
         try {
             const [entry, at] = string.unpack(this.entryFmt, str, rem + 1);
@@ -210,11 +211,12 @@ export class RecordLog {
 
         const pageNums = this.store.listPages();
         if (!next(pageNums)[0]) {
-            this.store.getPage(0).create(string.pack(this.entryFmt, ""));
-            pageNums.add(0);
+            this.store.getPage(0 as PageNum)
+                .create(string.pack(this.entryFmt, ""));
+            pageNums.add(0 as PageNum);
         }
 
-        let minPageNum: number = next(pageNums)[0];
+        let minPageNum: PageNum = next(pageNums)[0];
         let maxPageNum = minPageNum;
         for (const pageNum of pageNums) {
             if (pageNum > maxPageNum) { maxPageNum = pageNum; }
@@ -235,9 +237,9 @@ export class RecordLog {
                 if (tailEntries.length <= 1) {
                     // The torn record didn't start here, delete the tail page
                     // and continue.
-                    const newTailPageNum = this.tailPage.pageNum - 1;
+                    const newPageNum = (this.tailPage.pageNum - 1) as PageNum;
                     this.tailPage.delete();
-                    this.tailPage = this.store.getPage(newTailPageNum);
+                    this.tailPage = this.store.getPage(newPageNum);
                     this.tailSize = assert(this.readPage(this.tailPage)).length;
                     hasTornRecord = true;
                 } else {
