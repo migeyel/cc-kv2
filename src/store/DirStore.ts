@@ -194,7 +194,7 @@ class DirPage implements IPage {
     }
 
     public delete(): void {
-        assert(!this.handle);
+        if (this.handle) { this.closeAppend(); }
         fs.delete(this.filePath);
     }
 

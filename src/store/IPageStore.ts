@@ -58,8 +58,7 @@ export interface IPage {
     createOpen(): void;
 
     /**
-     * Deletes the page from the store.
-     * @throws If the page is open for appending.
+     * Deletes the page from the store. Closes for appending if needed.
      *
      * If the page doesn't exist, implementors are free to throw or do nothing.
      */

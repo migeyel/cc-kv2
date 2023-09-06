@@ -270,7 +270,6 @@ class IndexedPage implements IPage {
 
     public delete(): void {
         const [page] = assert(this.page, "page doesn't exist");
-        assert(!page.canAppend(), "page is open for appending");
         const state = this.state;
         const where = assert(this.indexPage.getPageSubNum(this.pageNum));
 

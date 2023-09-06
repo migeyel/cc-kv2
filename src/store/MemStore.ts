@@ -113,7 +113,7 @@ class MemPage implements IPage {
     }
 
     public delete(): void {
-        assert(!this.isAppend);
+        if (this.isAppend) { this.closeAppend(); }
         this.state.delPage(this.namespace, this.pageNum);
     }
 
