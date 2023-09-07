@@ -31,7 +31,7 @@ export class IndexCollection {
     }
 
     public getIndexStore(namespace: Namespace): IndexStore {
-        return this.stores.getOr(namespace, () => new IndexStore(
+        return this.stores.getOr(this, namespace, () => new IndexStore(
             this.collection.getStore(namespace),
             this.nullStr,
         ));
@@ -57,7 +57,7 @@ export class IndexStore {
     public getPageIndexPage(dataPageNum: number): IndexPage {
         const entriesPerPage = math.floor(this.store.pageSize / B_PER_ENTRY);
         const pageNum = math.floor(dataPageNum / entriesPerPage) as PageNum;
-        return this.pages.getOr(pageNum, () => new IndexPage(
+        return this.pages.getOr(this, pageNum, () => new IndexPage(
             this.store.getPage(pageNum),
             this.nullStr,
         ));

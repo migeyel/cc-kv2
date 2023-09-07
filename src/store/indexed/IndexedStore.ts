@@ -77,7 +77,7 @@ export class IndexedCollection implements IStoreCollection<
 
     public getStore(namespace: Namespace): IndexedStore {
         assert(namespace.length <= MAX_NAMESPACE_LEN);
-        return this.stores.getOr(namespace, () => new IndexedStore(
+        return this.stores.getOr(this, namespace, () => new IndexedStore(
             this.state,
             this.pageSize,
             namespace,
@@ -150,7 +150,7 @@ class IndexedStore implements IPageStore<IndexedPage> {
     }
 
     public getPage(pageNum: PageNum): IndexedPage {
-        return this.pages.getOr(pageNum, () => new IndexedPage(
+        return this.pages.getOr(this, pageNum, () => new IndexedPage(
             this.state,
             this.pageSize,
             this.namespace,

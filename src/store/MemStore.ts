@@ -23,7 +23,7 @@ export class MemCollection implements IStoreCollection<MemPage, MemStore> {
 
     public getStore(namespace: Namespace): MemStore {
         assert(namespace.length <= MAX_NAMESPACE_LEN);
-        return this.stores.getOr(namespace, () => new MemStore(
+        return this.stores.getOr(this, namespace, () => new MemStore(
             this.pageSize,
             namespace,
             this.state,
@@ -59,7 +59,7 @@ class MemStore implements IPageStore<MemPage> {
     }
 
     public getPage(pageNum: PageNum): MemPage {
-        return this.pages.getOr(pageNum, () => new MemPage(
+        return this.pages.getOr(this, pageNum, () => new MemPage(
             this.pageSize,
             pageNum,
             this.namespace,

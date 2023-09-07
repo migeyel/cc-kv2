@@ -75,7 +75,7 @@ export class DirStoreCollection implements IStoreCollection<
 
     public getStore(namespace: Namespace): DirPageStore {
         assert(namespace.length <= MAX_NAMESPACE_LEN);
-        return this.stores.getOr(namespace, () => new DirPageStore(
+        return this.stores.getOr(this, namespace, () => new DirPageStore(
             this.pageSize,
             this.dirPath,
             this.modPath,
@@ -118,7 +118,7 @@ class DirPageStore implements IPageStore<DirPage> {
     }
 
     public getPage(pageNum: PageNum): DirPage {
-        return this.pages.getOr(pageNum, () => new DirPage(
+        return this.pages.getOr(this, pageNum, () => new DirPage(
             this.pageSize,
             this.filePrefix,
             this.modPrefix,
