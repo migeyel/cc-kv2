@@ -3,7 +3,7 @@ import {
     IPage,
     IStoreCollection,
     IPageStore,
-    MAX_NAMESPACE_LEN,
+    MAX_NAMESPACE,
     Namespace,
     PageSize,
     PageNum,
@@ -74,7 +74,7 @@ export class DirStoreCollection implements IStoreCollection<
     }
 
     public getStore(namespace: Namespace): DirPageStore {
-        assert(namespace.length <= MAX_NAMESPACE_LEN);
+        assert(namespace <= MAX_NAMESPACE);
         return this.stores.getOr(this, namespace, () => new DirPageStore(
             this.pageSize,
             this.dirPath,
@@ -87,7 +87,7 @@ export class DirStoreCollection implements IStoreCollection<
         const out = new LuaSet<Namespace>();
         for (const path of fs.find(this.dirPath + "/*")) {
             const file = fs.getName(path);
-            const [name] = string.match(file, "^(.*)_[0-9]+$");
+            const name = tonumber(string.match(file, "^([0-9]+)_[0-9]+$")[0]);
             if (name != undefined) { out.add(name as Namespace); }
         }
         return out;

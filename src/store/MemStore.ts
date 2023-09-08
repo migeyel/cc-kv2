@@ -3,7 +3,7 @@ import {
     IPage,
     IPageStore,
     IStoreCollection,
-    MAX_NAMESPACE_LEN,
+    MAX_NAMESPACE,
     Namespace,
     PageNum,
     PageSize,
@@ -22,7 +22,7 @@ export class MemCollection implements IStoreCollection<MemPage, MemStore> {
     }
 
     public getStore(namespace: Namespace): MemStore {
-        assert(namespace.length <= MAX_NAMESPACE_LEN);
+        assert(namespace <= MAX_NAMESPACE);
         return this.stores.getOr(this, namespace, () => new MemStore(
             this.pageSize,
             namespace,

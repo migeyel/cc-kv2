@@ -1,6 +1,6 @@
 import { RecordLog } from "../../RecordLog";
 import {
-    MAX_NAMESPACE_LEN,
+    MAX_NAMESPACE,
     MAX_PAGE_NUM,
     Namespace,
     PageNum,
@@ -13,7 +13,7 @@ function fmtLen(maximum: number): string {
 
 const SUB_STORE_FMT = "I" + fmtLen(MAX_INDEXED_SUBSTORES);
 const PAGE_FMT = "I" + fmtLen(MAX_PAGE_NUM);
-const NAMESPACE_FMT = "s" + fmtLen(MAX_NAMESPACE_LEN);
+const NAMESPACE_FMT = "I" + fmtLen(MAX_NAMESPACE);
 
 export enum RecordType {
     CHECKPOINT,

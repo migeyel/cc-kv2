@@ -1,11 +1,11 @@
-/** The largest length a namespace string can take. */
-export const MAX_NAMESPACE_LEN = 32;
+/** The largest value a namespace can take. */
+export const MAX_NAMESPACE = 255;
 
 /** The maximum page number a store can hold. */
 export const MAX_PAGE_NUM = 2 ** 48 - 1;
 
-/** A named collection of pages in a store. */
-export type Namespace = string & { readonly __brand: unique symbol };
+/** A collection of pages in a store. */
+export type Namespace = number & { readonly __brand: unique symbol };
 
 /** A page size. */
 export type PageSize = number & { readonly __brand: unique symbol };

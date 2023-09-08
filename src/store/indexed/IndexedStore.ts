@@ -3,7 +3,7 @@ import {
     IPage,
     IPageStore,
     IStoreCollection,
-    MAX_NAMESPACE_LEN,
+    MAX_NAMESPACE,
     Namespace,
     PageNum,
     PageSize,
@@ -76,7 +76,7 @@ export class IndexedCollection implements IStoreCollection<
     }
 
     public getStore(namespace: Namespace): IndexedStore {
-        assert(namespace.length <= MAX_NAMESPACE_LEN);
+        assert(namespace <= MAX_NAMESPACE);
         return this.stores.getOr(this, namespace, () => new IndexedStore(
             this.state,
             this.pageSize,
