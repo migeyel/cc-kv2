@@ -133,7 +133,7 @@ export class IndexedCollection implements IStoreCollection<
 class IndexedStore implements IPageStore<IndexedPage> {
     public readonly pageSize: PageSize;
 
-    private namespace: Namespace;
+    public readonly namespace: Namespace;
 
     private state: IndexState;
 
@@ -174,7 +174,7 @@ class IndexedPage implements IPage {
 
     public readonly pageNum: PageNum;
 
-    private namespace: Namespace;
+    public readonly namespace: Namespace;
 
     /** The index page that resolves this page's number. */
     private indexPage: IndexPage;

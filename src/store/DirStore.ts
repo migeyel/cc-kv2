@@ -97,6 +97,8 @@ export class DirStoreCollection implements IStoreCollection<
 class DirPageStore implements IPageStore<DirPage> {
     public readonly pageSize: PageSize;
 
+    public readonly namespace: Namespace;
+
     /** The path prefix for files in the store. */
     private filePrefix: string;
 
@@ -113,6 +115,7 @@ class DirPageStore implements IPageStore<DirPage> {
         namespace: Namespace,
     ) {
         this.pageSize = pageSize;
+        this.namespace = namespace;
         this.filePrefix = fs.combine(dirPath, namespace + "_");
         this.modPrefix = fs.combine(modPath, namespace + "_");
     }
@@ -120,6 +123,7 @@ class DirPageStore implements IPageStore<DirPage> {
     public getPage(pageNum: PageNum): DirPage {
         return this.pages.getOr(this, pageNum, () => new DirPage(
             this.pageSize,
+            this.namespace,
             this.filePrefix,
             this.modPrefix,
             pageNum,
@@ -141,6 +145,8 @@ class DirPageStore implements IPageStore<DirPage> {
 class DirPage implements IPage {
     public readonly pageSize: PageSize;
 
+    public readonly namespace: Namespace;
+
     public readonly pageNum: PageNum;
 
     /** The file path. */
@@ -154,11 +160,13 @@ class DirPage implements IPage {
 
     public constructor(
         pageSize: PageSize,
+        namespace: Namespace,
         filePrefix: string,
         modPrefix: string,
         pageNum: PageNum,
     ) {
         this.pageNum = pageNum;
+        this.namespace = namespace;
         this.pageSize = pageSize;
         this.filePath = filePrefix + tostring(pageNum);
         this.fileModPrefix = modPrefix + tostring(pageNum);

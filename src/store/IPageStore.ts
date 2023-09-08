@@ -33,6 +33,9 @@ export interface IPage {
     /** The maximum size for contents in this page. */
     readonly pageSize: PageSize;
 
+    /** The namespace for this page. */
+    readonly namespace: Namespace;
+
     /** The page number for this page. */
     readonly pageNum: PageNum;
 
@@ -123,6 +126,9 @@ export interface IPage {
 export interface IPageStore<P extends IPage> {
     /** The preferential maximum page size for pages in the store. */
     readonly pageSize: PageSize;
+
+    /** The namespace for this store. */
+    readonly namespace: Namespace;
 
     /** Specifies a page in the store. */
     getPage(pageNum: PageNum): P;

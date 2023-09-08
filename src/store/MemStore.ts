@@ -42,7 +42,7 @@ export class MemCollection implements IStoreCollection<MemPage, MemStore> {
 class MemStore implements IPageStore<MemPage> {
     public readonly pageSize: PageSize;
 
-    private namespace: Namespace;
+    public readonly namespace: Namespace;
 
     private state: MemState;
 
@@ -80,7 +80,7 @@ class MemPage implements IPage {
 
     public readonly pageNum: PageNum;
 
-    private namespace: Namespace;
+    public readonly namespace: Namespace;
 
     private state: MemState;
 
