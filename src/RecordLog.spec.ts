@@ -334,3 +334,50 @@ import { MemCollection } from "./store/MemStore";
 
     log.close();
 }
+
+{
+    // The log can be trimmed to remove old records that aren't needed.
+    const mem = new MemCollection(16 as PageSize).getStore(0 as Namespace);
+    const log = new RecordLog(mem);
+
+    const lsn1 = log.appendRecord("0123456789abcdef0123456789abcdef");
+    const lsn2 = log.appendRecord("another");
+    log.flushToPoint(lsn2);
+
+    assert(mem.getPage(0 as PageNum).read() == table.concat([
+        string.pack("<I1", 0),
+        string.pack("<I1", 14),
+        "0123456789abcd",
+    ]));
+
+    assert(mem.getPage(1 as PageNum).read() == table.concat([
+        string.pack("<I1", 15),
+        "ef0123456789abc",
+    ]));
+
+    assert(mem.getPage(2 as PageNum).read() == table.concat([
+        string.pack("<I1", 3),
+        "def",
+        string.pack("<I1", 7),
+        "another",
+    ]));
+
+    // Trimming to lsn1 doesn't free any page.
+    log.trimToPoint(lsn1);
+    assert(mem.getPage(0 as PageNum).read() == table.concat([
+        string.pack("<I1", 0),
+        string.pack("<I1", 14),
+        "0123456789abcd",
+    ]));
+
+    // Trimming to lsn2 frees the first 2 pages.
+    log.trimToPoint(lsn2);
+    assert(mem.getPage(0 as PageNum).read() == undefined);
+    assert(mem.getPage(1 as PageNum).read() == undefined);
+    assert(mem.getPage(2 as PageNum).read() == table.concat([
+        string.pack("<I1", 3),
+        "def",
+        string.pack("<I1", 7),
+        "another",
+    ]));
+}
