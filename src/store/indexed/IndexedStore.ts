@@ -361,7 +361,7 @@ class IndexedPage implements IPage {
     public closeAppend(): void {
         const [page] = assert(this.page, "page doesn't exist");
         assert(page.canAppend(), "page isn't open for appending");
-        page.openAppend();
+        page.closeAppend();
     }
 
     public flush(): void {
@@ -413,20 +413,18 @@ class IndexState {
             const quota = assert(this.quotas.get(num));
             const usage = assert(this.log.usages.get(num));
             const free = quota - usage;
-            if (usage) {
-                let node = this.freeQueue.first();
-                while (node) {
-                    const nodeQuota = assert(this.quotas.get(node.val));
-                    const nodeUsage = assert(this.log.usages.get(node.val));
-                    const nodeFree = nodeQuota - nodeUsage;
-                    if (nodeFree <= free) {
-                        this.freeQueueMap.set(num, node.pushBefore(num));
-                        return;
-                    }
-                    node = node.getNext();
+            let node = this.freeQueue.first();
+            while (node) {
+                const nodeQuota = assert(this.quotas.get(node.val));
+                const nodeUsage = assert(this.log.usages.get(node.val));
+                const nodeFree = nodeQuota - nodeUsage;
+                if (nodeFree <= free) {
+                    this.freeQueueMap.set(num, node.pushBefore(num));
+                    return;
                 }
-                this.freeQueueMap.set(num, this.freeQueue.pushBack(num));
+                node = node.getNext();
             }
+            this.freeQueueMap.set(num, this.freeQueue.pushBack(num));
         }
     }
 
