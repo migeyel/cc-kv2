@@ -17,8 +17,8 @@ import { MemCollection } from "./store/MemStore";
 
     // To make very long records possible, records are split across one or more
     // entries in one or more pages, which are then logically coalesced. As a
-    // As a quirk, the very first page of the log has an inacessible 0-length
-    // entry at its start.
+    // quirk, the very first page of the log has an inacessible 0-length entry
+    // at its start.
     // Each entry is stored preceded by its length in little-endian.
     assert(mem.getPage(0 as PageNum).read() == table.concat([
         string.pack("<I1", 0), // 0-sized entry.
