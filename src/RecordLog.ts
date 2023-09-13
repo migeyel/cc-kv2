@@ -84,7 +84,9 @@ export class RecordLog {
     public flushToPoint(flushLsn: number) {
         const diskTailSize = this.tailSize - this.tailBuf.length;
         const tailLastDiskLsn = this.tailBaseLsn() + diskTailSize - 1;
-        if (tailLastDiskLsn < flushLsn) {
+        // If diskTailSize is 0 then we don't know whether the record starts
+        // here or in a previous page.
+        if (tailLastDiskLsn < flushLsn || diskTailSize == 0) {
             // We don't know how big the record is, so just flush everything.
             this.tailPage.append(this.tailBuf);
             this.tailBuf = "";
