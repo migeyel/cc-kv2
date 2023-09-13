@@ -8,10 +8,9 @@
         "types": ["@jackmacwindows/lua-types/cc", "@jackmacwindows/craftos-types", "@jackmacwindows/cc-types"]
     },
     "tstl": {
-        "luaTarget": "CC",
-        "luaLibImport": "inline",
-        "luaBundle": "main.lua",
-        "luaBundleEntry": "src/main.ts"
+        "luaTarget": "5.2",
+        "luaLibImport": "require-minimal",
+        "sourceMapTraceback": true
     },
     "include": [ "./src/**/*.ts" ]
 }

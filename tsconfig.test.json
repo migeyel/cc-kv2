@@ -1,0 +1,7 @@
+{
+    "extends": "./tsconfig.json",
+    "tstl": {
+        "luaBundle": "spec.lua",
+        "luaBundleEntry": "src/main.spec.ts",
+    }
+}
