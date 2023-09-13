@@ -207,7 +207,7 @@ export class RecordLog {
 
     public constructor(store: IPageStore<IPage>) {
         this.pageSize = store.pageSize;
-        this.entryLengthBytes = math.ceil(math.log(store.pageSize, 256));
+        this.entryLengthBytes = math.ceil(math.log(1 + store.pageSize, 256));
         this.entryFmt = "<s" + this.entryLengthBytes;
         this.store = store;
 
