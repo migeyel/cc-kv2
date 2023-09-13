@@ -110,6 +110,7 @@ class MemPage implements IPage {
     public createOpen(): void {
         assert(!this.isAppend);
         this.create();
+        this.isAppend = true;
     }
 
     public delete(): void {
@@ -128,7 +129,7 @@ class MemPage implements IPage {
 
     public append(extra: string): void {
         assert(this.isAppend);
-        this.write(this.read() + extra);
+        this.state.setPage(this.namespace, this.pageNum, this.read() + extra);
     }
 
     public canAppend(): boolean {
