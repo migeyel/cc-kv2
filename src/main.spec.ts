@@ -1,12 +1,9 @@
 export function exit(returnCode?: number) {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
+    // @ts-expect-error: CraftOS-PC allows shutting down with a return code.
     os.shutdown(returnCode);
 }
 
-// HACK
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
+// @ts-expect-error: This is a dirty hack to allow module introspection.
 const modules: LuaTable<string, unknown> = ____modules;
 
 for (const [module] of modules) {
