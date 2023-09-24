@@ -207,6 +207,7 @@ export class RecordLog {
     }
 
     public constructor(store: IPageStore<IPage>) {
+        assert(store.pageSize <= MAX_PAGE_SIZE);
         this.pageSize = store.pageSize;
         this.store = store;
 
