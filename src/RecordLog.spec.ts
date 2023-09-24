@@ -19,10 +19,10 @@ import { MemCollection } from "./store/MemStore";
     // entries in one or more pages, which are then logically coalesced. As a
     // quirk, the very first page of the log has an inacessible 0-length entry
     // at its start.
-    // Each entry is stored preceded by its length in little-endian.
+    // Each entry is stored preceded by its length as 2 little-endian bytes.
     assert(mem.getPage(0 as PageNum).read() == table.concat([
-        string.pack("<I1", 0), // 0-sized entry.
-        string.pack("<I1", 11), // The length of "Hello, log!"
+        string.pack("<I2", 0), // 0-sized entry.
+        string.pack("<I2", 11), // The length of "Hello, log!"
         "Hello, log!",
     ]));
 
@@ -30,55 +30,6 @@ import { MemCollection } from "./store/MemStore";
     assert(log.getRecord(lsn)[0] == "Hello, log!");
 
     // We need to close the log when we finish using it.
-    log.close();
-}
-
-{
-    // The length field grows as the page size grows. For simplicity, this
-    // happens at the powers of 256, although this isn't optimal.
-
-    // 255-byte pages:
-    let mem = new MemCollection(255 as PageSize).getStore(0 as Namespace);
-    let log = new RecordLog(mem);
-    log.flushToPoint(log.appendRecord("foo"));
-    assert(mem.getPage(0 as PageNum).read() == table.concat([
-        string.pack("<I1", 0), // 1 Byte
-        string.pack("<I1", 3),
-        "foo",
-    ]));
-    log.close();
-
-    // 256-byte pages:
-    mem = new MemCollection(256 as PageSize).getStore(0 as Namespace);
-    log = new RecordLog(mem);
-    log.flushToPoint(log.appendRecord("foo"));
-    assert(mem.getPage(0 as PageNum).read() == table.concat([
-        string.pack("<I2", 0), // 2 Bytes
-        string.pack("<I2", 3),
-        "foo",
-    ]));
-    log.close();
-
-    // 65535-byte pages:
-    mem = new MemCollection(65535 as PageSize).getStore(0 as Namespace);
-    log = new RecordLog(mem);
-    log.flushToPoint(log.appendRecord("foo"));
-    assert(mem.getPage(0 as PageNum).read() == table.concat([
-        string.pack("<I2", 0), // 2 Bytes
-        string.pack("<I2", 3),
-        "foo",
-    ]));
-    log.close();
-
-    // 65536-byte pages:
-    mem = new MemCollection(65536 as PageSize).getStore(0 as Namespace);
-    log = new RecordLog(mem);
-    log.flushToPoint(log.appendRecord("foo"));
-    assert(mem.getPage(0 as PageNum).read() == table.concat([
-        string.pack("<I3", 0), // 3 Bytes
-        string.pack("<I3", 3),
-        "foo",
-    ]));
     log.close();
 }
 
@@ -92,21 +43,21 @@ import { MemCollection } from "./store/MemStore";
 
     // The record starts on page 0...
     assert(mem.getPage(0 as PageNum).read() == table.concat([
-        string.pack("<I1", 0),
-        string.pack("<I1", 14),
-        "0123456789abcd",
+        string.pack("<I2", 0),
+        string.pack("<I2", 12),
+        "0123456789ab",
     ]));
 
     // ...goes through page 1...
     assert(mem.getPage(1 as PageNum).read() == table.concat([
-        string.pack("<I1", 15),
-        "ef0123456789abc",
+        string.pack("<I2", 14),
+        "cdef0123456789",
     ]));
 
     // ...and ends on page 2.
     assert(mem.getPage(2 as PageNum).read() == table.concat([
-        string.pack("<I1", 3),
-        "def",
+        string.pack("<I2", 6),
+        "abcdef",
     ]));
 
     log.close();
@@ -118,18 +69,18 @@ import { MemCollection } from "./store/MemStore";
     // as a 0-length entry in the next page.
     const mem = new MemCollection(16 as PageSize).getStore(0 as Namespace);
     const log = new RecordLog(mem);
-    log.flushToPoint(log.appendRecord("0123456789abcd"));
+    log.flushToPoint(log.appendRecord("0123456789ab"));
 
     // The record starts on page 0...
     assert(mem.getPage(0 as PageNum).read() == table.concat([
-        string.pack("<I1", 0),
-        string.pack("<I1", 14),
-        "0123456789abcd",
+        string.pack("<I2", 0),
+        string.pack("<I2", 12),
+        "0123456789ab",
     ]));
 
     // ...and ends on page 1 as a 0-length entry.
     assert(mem.getPage(1 as PageNum).read() == table.concat([
-        string.pack("<I1", 0),
+        string.pack("<I2", 0),
     ]));
 
     log.close();
@@ -140,18 +91,18 @@ import { MemCollection } from "./store/MemStore";
     // length bytes will fill an otherwise non-full page.
     const mem = new MemCollection(16 as PageSize).getStore(0 as Namespace);
     const log = new RecordLog(mem);
-    log.appendRecord("0123456789abc");
+    log.appendRecord("0123456789");
     log.flushToPoint(log.appendRecord("hi"));
 
     assert(mem.getPage(0 as PageNum).read() == table.concat([
-        string.pack("<I1", 0),
-        string.pack("<I1", 13), // First record.
-        "0123456789abc",
-        string.pack("<I1", 0), // Part of the second record.
+        string.pack("<I2", 0),
+        string.pack("<I2", 10), // First record.
+        "0123456789",
+        string.pack("<I2", 0), // Part of the second record.
     ]));
 
     assert(mem.getPage(1 as PageNum).read() == table.concat([
-        "\x02", // The "rest" of the second record.
+        string.pack("<I2", 2), // The "rest" of the second record.
         "hi",
     ]));
 
@@ -159,18 +110,17 @@ import { MemCollection } from "./store/MemStore";
 }
 
 {
-    // If the length field is larger than 1 byte, then the page can be full even
-    // if its size is less than the page size.
-    const mem = new MemCollection(256 as PageSize).getStore(0 as Namespace);
+    // The page can be full even if its size is less than the page size.
+    const mem = new MemCollection(16 as PageSize).getStore(0 as Namespace);
     const log = new RecordLog(mem);
-    log.appendRecord(string.rep("a", 251));
+    log.appendRecord("0123456789a");
     log.flushToPoint(log.appendRecord("hi"));
 
     assert(mem.getPage(0 as PageNum).read() == table.concat([
         string.pack("<I2", 0),
-        string.pack("<I2", 251),
-        string.rep("a", 251),
-        // The whole page is 255 bytes long, 1 less than the page size, but we
+        string.pack("<I2", 11),
+        "0123456789a",
+        // The whole page is 15 bytes long, 1 less than the page size, but we
         // can't fit another entry here so it's considered full.
     ]));
 
@@ -195,58 +145,62 @@ import { MemCollection } from "./store/MemStore";
     log.flushToPoint(lsn4);
 
     assert(mem.getPage(0 as PageNum).read() == table.concat([
-        /* 0 */ string.pack("<I1", 0),
-        /* 1 */ string.pack("<I1", 14), // Start of record at lsn1
-        /* 2 */ "The LSN for a ",
+        /* 0 */ string.pack("<I2", 0),
+        /* 2 */ string.pack("<I2", 12), // Start of record at lsn1
+        /* 4 */ "The LSN for ",
     ]));
 
     // getRecord(lsn) returns the whole record and the next LSN.
-    assert(lsn1 == 1);
+    assert(lsn1 == 2);
     assert(log.getRecord(lsn1)[0] == "The LSN for a given");
     assert(log.getRecord(lsn1)[1] == lsn2);
 
     assert(mem.getPage(1 as PageNum).read() == table.concat([
-        /* 16 */ string.pack("<I1", 5),
-        /* 17 */ "given",
-        /* 22 */ string.pack("<I1", 9),  // Start of record at lsn2
-        /* 23 */ "record is",
+        /* 16 */ string.pack("<I2", 7),
+        /* 18 */ "a given",
+        /* 25 */ string.pack("<I2", 5),  // Start of record at lsn2
+        /* 27 */ "recor",
     ]));
 
-    assert(lsn2 == 22);
+    assert(lsn2 == 25);
     assert(log.getRecord(lsn2)[0] == "record is the page");
     assert(log.getRecord(lsn2)[1] == lsn3);
 
     assert(mem.getPage(2 as PageNum).read() == table.concat([
-        /* 32 */ string.pack("<I1", 9),
-        /* 33 */ " the page",
-        /* 42 */ string.pack("<I1", 5),  // Start of record at lsn3
-        /* 43 */ "addre",
+        /* 32 */ string.pack("<I2", 13),
+        /* 34 */ "d is the page",
     ]));
 
-    assert(lsn3 == 42);
+    assert(mem.getPage(3 as PageNum).read() == table.concat([
+        /* 48 */ string.pack("<I2", 0),
+        /* 50 */ string.pack("<I2", 12), // Start of record at lsn3
+        /* 52 */ "address from",
+    ]));
+
+    assert(lsn3 == 50);
     assert(log.getRecord(lsn3)[0] == "address from the first");
     assert(log.getRecord(lsn3)[1] == lsn4);
 
-    assert(mem.getPage(3 as PageNum).read() == table.concat([
-        /* 48 */ string.pack("<I1", 15),
-        /* 49 */ "ss from the fir",
-    ]));
-
     assert(mem.getPage(4 as PageNum).read() == table.concat([
-        /* 64 */ string.pack("<I1", 2),
-        /* 65 */ "st",
-        /* 67 */ string.pack("<I1", 12),  // Start of record at lsn4
-        /* 68 */ "entry it app",
+        /* 64 */ string.pack("<I2", 10),
+        /* 66 */ " the first",
+        /* 76 */ string.pack("<I2", 2),  // Start of record at lsn4
+        /* 78 */ "en",
     ]));
 
     // For the final record, the next record doesn't exist.
-    assert(lsn4 == 67);
+    assert(lsn4 == 76);
     assert(log.getRecord(lsn4)[0] == "entry it appears in.");
     assert(log.getRecord(lsn4)[1] == log.getEnd());
 
     assert(mem.getPage(5 as PageNum).read() == table.concat([
-        /* 80 */ string.pack("<I1", 8),
-        /* 81 */ "ears in.",
+        /* 80 */ string.pack("<I2", 14),
+        /* 82 */ "try it appears",
+    ]));
+
+    assert(mem.getPage(6 as PageNum).read() == table.concat([
+        /* 96 */ string.pack("<I2", 4),
+        /* 98 */ " in.",
     ]));
 
     log.close();
@@ -254,13 +208,13 @@ import { MemCollection } from "./store/MemStore";
 
 {
     // The log can recover from half-written entries in the last page.
-    const mem = new MemCollection(16 as PageSize).getStore(0 as Namespace);
+    const mem = new MemCollection(32 as PageSize).getStore(0 as Namespace);
 
     mem.getPage(0 as PageNum).create(table.concat([
-        string.pack("<I1", 0),
-        string.pack("<I1", 6),
+        string.pack("<I2", 0),
+        string.pack("<I2", 6),
         "hello!",
-        string.pack("<I1", 6),
+        string.pack("<I2", 6),
         "wai-", // Should be 6 characters but got cut off.
     ]));
 
@@ -274,8 +228,8 @@ import { MemCollection } from "./store/MemStore";
 
     // The page also gets rewritten to fix the torn entry, even without a flush.
     assert(mem.getPage(0 as PageNum).read() == table.concat([
-        string.pack("<I1", 0),
-        string.pack("<I1", 6),
+        string.pack("<I2", 0),
+        string.pack("<I2", 6),
         "hello!",
     ]));
 
@@ -287,14 +241,14 @@ import { MemCollection } from "./store/MemStore";
     const mem = new MemCollection(16 as PageSize).getStore(0 as Namespace);
 
     mem.getPage(0 as PageNum).create(table.concat([
-        string.pack("<I1", 0),
-        string.pack("<I1", 14),
-        "this is a very",
+        string.pack("<I2", 0),
+        string.pack("<I2", 12),
+        "this is a ve",
     ]));
 
     mem.getPage(1 as PageNum).create(table.concat([
-        string.pack("<I1", 11),
-        "long rec-",
+        string.pack("<I2", 14),
+        "ry long rec-",
     ]));
 
     const log = new RecordLog(mem);
@@ -303,7 +257,7 @@ import { MemCollection } from "./store/MemStore";
 
     // The first page is rectified.
     assert(mem.getPage(0 as PageNum).read() == table.concat([
-        string.pack("<I1", 0),
+        string.pack("<I2", 0),
     ]));
 
     // The second page is deleted.
@@ -319,9 +273,9 @@ import { MemCollection } from "./store/MemStore";
 
     // The page is full but there's no futher page, so the record is incomplete.
     mem.getPage(0 as PageNum).create(table.concat([
-        string.pack("<I1", 0),
-        string.pack("<I1", 14),
-        "this is a very",
+        string.pack("<I2", 0),
+        string.pack("<I2", 12),
+        "this is a ve",
     ]));
 
     const log = new RecordLog(mem);
@@ -329,7 +283,7 @@ import { MemCollection } from "./store/MemStore";
     assert(log.getStart() == log.getEnd());
 
     assert(mem.getPage(0 as PageNum).read() == table.concat([
-        string.pack("<I1", 0),
+        string.pack("<I2", 0),
     ]));
 
     log.close();
@@ -341,33 +295,33 @@ import { MemCollection } from "./store/MemStore";
     const log = new RecordLog(mem);
 
     const lsn1 = log.appendRecord("0123456789abcdef0123456789abcdef");
-    const lsn2 = log.appendRecord("another");
+    const lsn2 = log.appendRecord("abcd");
     log.flushToPoint(lsn2);
 
     assert(mem.getPage(0 as PageNum).read() == table.concat([
-        string.pack("<I1", 0),
-        string.pack("<I1", 14),
-        "0123456789abcd",
+        string.pack("<I2", 0),
+        string.pack("<I2", 12),
+        "0123456789ab",
     ]));
 
     assert(mem.getPage(1 as PageNum).read() == table.concat([
-        string.pack("<I1", 15),
-        "ef0123456789abc",
+        string.pack("<I2", 14),
+        "cdef0123456789",
     ]));
 
     assert(mem.getPage(2 as PageNum).read() == table.concat([
-        string.pack("<I1", 3),
-        "def",
-        string.pack("<I1", 7),
-        "another",
+        string.pack("<I2", 6),
+        "abcdef",
+        string.pack("<I2", 4),
+        "abcd",
     ]));
 
     // Trimming to lsn1 doesn't free any page.
     log.trimToPoint(lsn1);
     assert(mem.getPage(0 as PageNum).read() == table.concat([
-        string.pack("<I1", 0),
-        string.pack("<I1", 14),
-        "0123456789abcd",
+        string.pack("<I2", 0),
+        string.pack("<I2", 12),
+        "0123456789ab",
     ]));
 
     // Trimming to lsn2 frees the first 2 pages.
@@ -375,9 +329,9 @@ import { MemCollection } from "./store/MemStore";
     assert(mem.getPage(0 as PageNum).read() == undefined);
     assert(mem.getPage(1 as PageNum).read() == undefined);
     assert(mem.getPage(2 as PageNum).read() == table.concat([
-        string.pack("<I1", 3),
-        "def",
-        string.pack("<I1", 7),
-        "another",
+        string.pack("<I2", 6),
+        "abcdef",
+        string.pack("<I2", 4),
+        "abcd",
     ]));
 }

@@ -1,16 +1,18 @@
 import { IPage, IPageStore, PageNum } from "./store/IPageStore";
 
+/** The largest supported page size for this structure. */
+const MAX_PAGE_SIZE = 65535;
+
+/** How many bytes it takes to store the length of a page entry. */
+const ENTRY_LEN_BYTES = math.ceil(math.log(1 + MAX_PAGE_SIZE, 256));
+
+const ENTRY_FMT = "<s" + ENTRY_LEN_BYTES;
+
 /** An append-only log of string records. */
 export class RecordLog {
     private readonly store: IPageStore<IPage>;
 
     private readonly pageSize: number;
-
-    /** The packstring for an entry. */
-    private readonly entryFmt: string;
-
-    /** How many bytes it takes to store the length of a page entry. */
-    private readonly entryLengthBytes: number;
 
     /** The first LSN after the trimmed part of the log. */
     private firstLsn: number;
@@ -52,7 +54,7 @@ export class RecordLog {
 
     /** Returns whether no new entries can be added to the tail page. */
     private isTailFull(): boolean {
-        return this.tailSize + this.entryLengthBytes > this.pageSize;
+        return this.tailSize + ENTRY_LEN_BYTES > this.pageSize;
     }
 
     /** Reads a page, taking care of the tail page buffer edge case. */
@@ -127,8 +129,8 @@ export class RecordLog {
         const str = this.readPage(this.store.getPage(div as PageNum));
         if (!str) { return $multi(undefined, undefined); }
         try {
-            const [entry, at] = string.unpack(this.entryFmt, str, rem + 1);
-            if (at >= this.pageSize - this.entryLengthBytes + 1) {
+            const [entry, at] = string.unpack(ENTRY_FMT, str, rem + 1);
+            if (at >= this.pageSize - ENTRY_LEN_BYTES + 1) {
                 // The next entry can't fit here. So it starts in the next page.
                 return $multi(entry, (div + 1) * this.pageSize);
             } else {
@@ -141,12 +143,11 @@ export class RecordLog {
 
     /** Appends an entry to the log. Returns the remaining record fragment. */
     private appendEntry(data: string): string {
-        const maxWriteSize =
-            this.pageSize - this.entryLengthBytes - this.tailSize;
+        const maxWriteSize = this.pageSize - ENTRY_LEN_BYTES - this.tailSize;
         const writeSize = math.min(data.length, maxWriteSize);
         const entry = string.sub(data, 1, writeSize);
-        this.tailBuf += string.pack(this.entryFmt, entry);
-        this.tailSize += this.entryLengthBytes + entry.length;
+        this.tailBuf += string.pack(ENTRY_FMT, entry);
+        this.tailSize += ENTRY_LEN_BYTES + entry.length;
         return string.sub(data, writeSize + 1);
     }
 
@@ -207,14 +208,12 @@ export class RecordLog {
 
     public constructor(store: IPageStore<IPage>) {
         this.pageSize = store.pageSize;
-        this.entryLengthBytes = math.ceil(math.log(1 + store.pageSize, 256));
-        this.entryFmt = "<s" + this.entryLengthBytes;
         this.store = store;
 
         const pageNums = this.store.listPages();
         if (!next(pageNums)[0]) {
             this.store.getPage(0 as PageNum)
-                .create(string.pack(this.entryFmt, ""));
+                .create(string.pack(ENTRY_FMT, ""));
             pageNums.add(0 as PageNum);
         }
 
@@ -255,7 +254,7 @@ export class RecordLog {
                 // to rewrite the entries in case there were torn entries.
                 const entryStrs: string[] = [];
                 for (const entry of tailEntries) {
-                    entryStrs.push(string.pack(this.entryFmt, entry));
+                    entryStrs.push(string.pack(ENTRY_FMT, entry));
                 }
                 const tailData = table.concat(entryStrs);
                 this.tailPage.write(tailData);
