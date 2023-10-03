@@ -91,7 +91,7 @@ import { MemCollection } from "./store/MemStore";
     // length bytes will fill an otherwise non-full page.
     const mem = new MemCollection(16 as PageSize).getStore(0 as Namespace);
     const log = new RecordLog(mem);
-    log.appendRecord("0123456789");
+    const lsn1 = log.appendRecord("0123456789");
     log.flushToPoint(log.appendRecord("hi"));
 
     assert(mem.getPage(0 as PageNum).read() == table.concat([
@@ -105,6 +105,8 @@ import { MemCollection } from "./store/MemStore";
         string.pack("<I2", 2), // The "rest" of the second record.
         "hi",
     ]));
+
+    assert(log.getRecord(lsn1)[0] == "0123456789");
 
     log.close();
 }

@@ -119,7 +119,8 @@ export class RecordLog {
      * @param lsn - The entry's base LSN.
      * @returns The entry's contents, or nil if the entry is partially written
      * or belongs to a nonexistent page.
-     * @returns The LSN of the next entry, or nil if the contents are nil.
+     * @returns The LSN of the next entry, or nil if the entry is partially
+     * written or belongs to a nonexistent page.
      */
     private getEntry(lsn: number): LuaMultiReturn<
         [string, number] | [undefined, undefined]
@@ -130,7 +131,7 @@ export class RecordLog {
         if (!str) { return $multi(undefined, undefined); }
         try {
             const [entry, at] = string.unpack(ENTRY_FMT, str, rem + 1);
-            if (at >= this.pageSize - ENTRY_LEN_BYTES + 1) {
+            if (at > this.pageSize - ENTRY_LEN_BYTES + 1) {
                 // The next entry can't fit here. So it starts in the next page.
                 return $multi(entry, (div + 1) * this.pageSize);
             } else {
