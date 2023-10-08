@@ -9,7 +9,8 @@ enum EventType {
     SET_LINKS,
 }
 
-const ENTRY_ID_BYTES = 2;
+export const ENTRY_ID_BYTES = 2;
+
 const ENTRY_LEN_BYTES = 2;
 
 /** The page data strucutre overhead in bytes. */
@@ -22,7 +23,10 @@ export const ENTRY_OVERHEAD = ENTRY_ID_BYTES + ENTRY_LEN_BYTES;
 export const MAX_ENTRY_ID = 256 ** ENTRY_ID_BYTES - 1;
 
 /** The maximum page size supported. */
-const MAX_PAGE_SIZE = MAX_ENTRY_ID - PAGE_OVERHEAD;
+const MAX_PAGE_SIZE = math.min(
+    MAX_ENTRY_ID - PAGE_OVERHEAD,
+    256 ** ENTRY_LEN_BYTES - 1,
+);
 
 /** A sentinel value for the linked list, meaning end of list. */
 export const NO_LINK = 256 ** PAGE_LINK_BYTES - 1 as PageNum;

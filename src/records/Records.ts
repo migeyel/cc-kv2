@@ -1,3 +1,4 @@
+import { AllocatedPageComponent } from "../AllocatedPageComponent";
 import {
     IPage,
     IPageStore,
@@ -24,6 +25,7 @@ import {
     deserializeEntryEvent,
     DeleteEntryEvent,
     WriteEntryEvent,
+    ENTRY_ID_BYTES,
 } from "./RecordPage";
 import {
     PAGE_LINK_BYTES,
@@ -33,7 +35,7 @@ import {
 } from "./SizeClass";
 
 /** The size of a serialized record ID, in bytes. */
-export const RECORD_ID_BYTES = PAGE_LINK_BYTES + ENTRY_OVERHEAD;
+export const RECORD_ID_BYTES = PAGE_LINK_BYTES + ENTRY_ID_BYTES;
 
 const RECORD_ID_FMT = "<I" + PAGE_LINK_BYTES + "I" + ENTRY_OVERHEAD;
 
@@ -64,8 +66,8 @@ export class RecordsComponent {
     /** The collection page size. */
     private pageSize: PageSize;
 
-    /** The number of pages in the record page store. */
-    private numRecordPages: number;
+    /** A component for allocating pages. */
+    private allocatedPages: AllocatedPageComponent;
 
     /** The namespace for the header page. */
     private headerNamespace: Namespace;
@@ -81,20 +83,17 @@ export class RecordsComponent {
 
     public constructor(
         collection: IStoreCollection<IPage, IPageStore<IPage>>,
+        allocatedPages: AllocatedPageComponent,
         headerNamespace: Namespace,
         pageNamespace: Namespace,
     ) {
+        assert(allocatedPages.pagesNamespace == pageNamespace);
         this.headerNamespace = headerNamespace;
         this.pageNamespace = pageNamespace;
         this.pageSize = collection.pageSize;
         this.capacity = RecordPageObj.getCapacity(this.pageSize);
         this.maxRecordSize = this.capacity - ENTRY_OVERHEAD;
-
-        const store = collection.getStore(this.pageNamespace);
-        this.numRecordPages = 0;
-        while (store.getPage(this.numRecordPages as PageNum).read()) {
-            this.numRecordPages++;
-        }
+        this.allocatedPages = allocatedPages;
     }
 
     public deserializeObj(namespace: Namespace, str?: string): IObj<IEvent> {
@@ -135,11 +134,8 @@ export class RecordsComponent {
             .getPage(0 as PageNum);
 
         // Get a new page.
-        const pageNum = this.numRecordPages as PageNum;
-        const nextPage = collection
-            .getStoreCast<RecordPageObj, EntryEvent>(this.pageNamespace)
-            .getPage(pageNum);
-        this.numRecordPages++;
+        const nextPage = this.allocatedPages
+            .allocPageCast<RecordPageObj, EntryEvent>(collection);
 
         // Put the record in.
         const entryId = nextPage.obj.getUnusedEntryId();
@@ -152,9 +148,9 @@ export class RecordsComponent {
         // Push it into the start of the linked list.
         const headerLink = header.obj.links[sizeClass];
         nextPage.doEvent(new SetLinksEvent(sizeClass, NO_LINK, headerLink));
-        header.doEvent(new HeaderEvent(sizeClass, pageNum));
+        header.doEvent(new HeaderEvent(sizeClass, nextPage.pageNum));
 
-        return new RecordId(pageNum, entryId);
+        return new RecordId(nextPage.pageNum, entryId);
     }
 
     /** Reassigns a page's size class if needed. */
@@ -197,7 +193,9 @@ export class RecordsComponent {
         }
 
         if (usedSpace == 0) {
+            // Free the page.
             page.doEvent(new SetLinksEvent(0 as SizeClass, NO_LINK, NO_LINK));
+            this.allocatedPages.freeUnusedPages(collection, page.pageNum);
         } else if (newSizeClass != sizeClass) {
             // Push it into the start of the new class list.
             const headerLink = header.obj.links[newSizeClass];
