@@ -59,6 +59,15 @@ export class ConfigObj implements IObj<SetEntryEvent> {
     }
 }
 
+export class ConfigEntryId {
+    public readonly namespace: Namespace;
+    public readonly key: number;
+    public constructor(namespace: Namespace, key: number) {
+        this.namespace = namespace;
+        this.key = key;
+    }
+}
+
 /** A component for storing a configuration value in a page. */
 export class ConfigEntryComponent<T> {
     public readonly namespace: Namespace;
@@ -67,13 +76,12 @@ export class ConfigEntryComponent<T> {
     private defaultValue: T;
 
     public constructor(
-        namespace: Namespace,
-        key: number,
+        id: ConfigEntryId,
         fmt: string,
         defaultValue: T,
     ) {
-        this.namespace = namespace;
-        this.key = key;
+        this.namespace = id.namespace;
+        this.key = id.key;
         this.fmt = fmt;
         this.defaultValue = defaultValue;
     }

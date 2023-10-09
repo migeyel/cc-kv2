@@ -83,17 +83,15 @@ export class RecordsComponent {
 
     public constructor(
         collection: IStoreCollection<IPage, IPageStore<IPage>>,
-        allocatedPages: PageAllocatorComponent,
+        pageAllocator: PageAllocatorComponent,
         headerNamespace: Namespace,
-        pageNamespace: Namespace,
     ) {
-        assert(allocatedPages.pagesNamespace == pageNamespace);
         this.headerNamespace = headerNamespace;
-        this.pageNamespace = pageNamespace;
+        this.pageNamespace = pageAllocator.pagesNamespace;
         this.pageSize = collection.pageSize;
         this.capacity = RecordPageObj.getCapacity(this.pageSize);
         this.maxRecordSize = this.capacity - ENTRY_OVERHEAD;
-        this.allocatedPages = allocatedPages;
+        this.allocatedPages = pageAllocator;
     }
 
     public deserializeObj(n: Namespace, s?: string): IObj<IEvent> | undefined {

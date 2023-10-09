@@ -281,14 +281,15 @@ export class TxCollection {
     private config: IConfig;
     private sh = new ShMap<Namespace, TxStore<IObj<IEvent>, IEvent>>();
 
+    public readonly pageSize: PageSize;
+
     public constructor(
         log: RecordLog,
         collection: IStoreCollection<IPage, IPageStore<IPage>>,
-        configFactory: (
-            collection: IStoreCollection<IPage, IPageStore<IPage>>,
-        ) => IConfig,
+        config: IConfig,
     ) {
-        this.config = configFactory(collection);
+        this.pageSize = collection.pageSize;
+        this.config = config;
         this.collection = collection;
         this.state = new State(
             new LuaMap(),

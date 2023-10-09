@@ -1,4 +1,4 @@
-import { ConfigEntryComponent } from "./ConfigPageComponent";
+import { ConfigEntryComponent, ConfigEntryId } from "./ConfigPageComponent";
 import { Namespace, PageNum } from "./store/IPageStore";
 import { PAGE_FMT } from "./txStore/LogRecord/types";
 import { IEvent, IObj, TxCollection, TxPage } from "./txStore/LogStore";
@@ -16,17 +16,15 @@ export class PageAllocatorComponent {
     public readonly pagesNamespace: Namespace;
 
     public constructor(
-        configNamespace: Namespace,
-        configNumPagesKey: number,
+        numPagesConfig: ConfigEntryId,
         pagesNamespace: Namespace,
     ) {
+        this.pagesNamespace = pagesNamespace;
         this.numPagesConfig = new ConfigEntryComponent(
-            configNamespace,
-            configNumPagesKey,
+            numPagesConfig,
             "<" + PAGE_FMT,
             0,
         );
-        this.pagesNamespace = pagesNamespace;
     }
 
     /** Allocates a new page and returns it. */
