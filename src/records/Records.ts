@@ -1,4 +1,4 @@
-import { AllocatedPageComponent } from "../AllocatedPageComponent";
+import { PageAllocatorComponent } from "../AllocatedPageComponent";
 import {
     IPage,
     IPageStore,
@@ -67,7 +67,7 @@ export class RecordsComponent {
     private pageSize: PageSize;
 
     /** A component for allocating pages. */
-    private allocatedPages: AllocatedPageComponent;
+    private allocatedPages: PageAllocatorComponent;
 
     /** The namespace for the header page. */
     private headerNamespace: Namespace;
@@ -83,7 +83,7 @@ export class RecordsComponent {
 
     public constructor(
         collection: IStoreCollection<IPage, IPageStore<IPage>>,
-        allocatedPages: AllocatedPageComponent,
+        allocatedPages: PageAllocatorComponent,
         headerNamespace: Namespace,
         pageNamespace: Namespace,
     ) {

@@ -3,8 +3,14 @@ import { Namespace, PageNum } from "./store/IPageStore";
 import { PAGE_FMT } from "./txStore/LogRecord/types";
 import { IEvent, IObj, TxCollection, TxPage } from "./txStore/LogStore";
 
-/** A component for allocating and deallocating pages. */
-export class AllocatedPageComponent {
+/**
+ * A component for allocating and deallocating pages.
+ *
+ * Remark: this allocator treats empty page objects as "unallocated". Therefore,
+ * you mustn't rely on allocated empty objects staying empty. As soon as an
+ * object managed by this allocator is made empty it must be considered free.
+ */
+export class PageAllocatorComponent {
     private numPagesConfig: ConfigEntryComponent<number>;
 
     public readonly pagesNamespace: Namespace;
