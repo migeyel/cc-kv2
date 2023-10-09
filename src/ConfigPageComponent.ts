@@ -86,13 +86,13 @@ export class ConfigEntryComponent<T> {
         this.defaultValue = defaultValue;
     }
 
-    public deserializeObj(namespace: Namespace, str?: string): ConfigObj {
-        assert(namespace == this.namespace);
+    public deserializeObj(n: Namespace, s?: string): ConfigObj | undefined {
+        if (n != this.namespace) { return; }
         const entries = new LuaMap<number, string>();
-        if (str) {
+        if (s) {
             let pos = 1;
-            while (pos <= str.length) {
-                const [key, value, nxtPos] = string.unpack(ENTRY_FMT, str, pos);
+            while (pos <= s.length) {
+                const [key, value, nxtPos] = string.unpack(ENTRY_FMT, s, pos);
                 entries.set(key, value);
                 pos = nxtPos;
             }
@@ -100,13 +100,13 @@ export class ConfigEntryComponent<T> {
         return new ConfigObj(entries);
     }
 
-    public deserializeEv(namespace: Namespace, str: string): SetEntryEvent {
-        assert(namespace == this.namespace);
-        if (str.length == CONFIG_KEY_BYTES) {
-            const [key, value] = string.unpack(SET_ENTRY_FMT1, str);
+    public deserializeEv(n: Namespace, s: string): SetEntryEvent | undefined {
+        if (n != this.namespace) { return; }
+        if (s.length == CONFIG_KEY_BYTES) {
+            const [key, value] = string.unpack(SET_ENTRY_FMT1, s);
             return new SetEntryEvent(key, value);
         } else {
-            const [key] = string.unpack(SET_ENTRY_FMT2, str);
+            const [key] = string.unpack(SET_ENTRY_FMT2, s);
             return new SetEntryEvent(key);
         }
     }
