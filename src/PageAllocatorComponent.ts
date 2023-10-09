@@ -32,17 +32,17 @@ export class PageAllocatorComponent {
         T extends IObj<E>,
         E extends IEvent
     >(cl: TxCollection): TxPage<T, E> {
-        const numPages = this.numPagesConfig.get(cl);
+        let numPages = this.numPagesConfig.get(cl);
         const ns = cl.getStoreCast<T, E>(this.pagesNamespace);
 
-        // Try a random page.
-        const attempt = math.random(0, numPages) as PageNum;
-        const attemptPage = ns.getPage(attempt);
-        if (attemptPage.obj.isEmpty()) { return attemptPage; }
+        let attemptPage = ns.getPage(math.random(0, numPages) as PageNum);
+        while (!attemptPage.obj.isEmpty()) {
+            attemptPage = ns.getPage(numPages as PageNum);
+            numPages++;
+        }
 
-        // Allocate at the end of the block.
-        this.numPagesConfig.set(cl, numPages + 1);
-        return ns.getPage(numPages as PageNum);
+        this.numPagesConfig.set(cl, numPages);
+        return attemptPage;
     }
 
     /**
