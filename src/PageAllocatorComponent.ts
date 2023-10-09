@@ -62,4 +62,12 @@ export class PageAllocatorComponent {
         }
         this.numPagesConfig.set(cl, numPages);
     }
+
+    public deserializeObj(n: Namespace, s?: string): IObj<IEvent> | undefined {
+        return this.numPagesConfig.deserializeObj(n, s);
+    }
+
+    public deserializeEv(n: Namespace, s: string): IEvent | undefined {
+        return this.numPagesConfig.deserializeObj(n, s);
+    }
 }

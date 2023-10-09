@@ -1,4 +1,4 @@
-import { PageAllocatorComponent } from "../AllocatedPageComponent";
+import { PageAllocatorComponent } from "../PageAllocatorComponent";
 import {
     IPage,
     IPageStore,
@@ -96,24 +96,14 @@ export class RecordsComponent {
         this.allocatedPages = allocatedPages;
     }
 
-    public deserializeObj(namespace: Namespace, str?: string): IObj<IEvent> {
-        if (namespace == this.pageNamespace) {
-            return deserializeRecordPageObj(str);
-        } else if (namespace == this.headerNamespace) {
-            return deserializeHeaderObj(str);
-        } else {
-            throw new Error("Unknown namespace: " + namespace);
-        }
+    public deserializeObj(n: Namespace, s?: string): IObj<IEvent> | undefined {
+        if (n == this.pageNamespace) { return deserializeRecordPageObj(s); }
+        if (n == this.headerNamespace) { return deserializeHeaderObj(s); }
     }
 
-    public deserializeEv(namespace: Namespace, str: string): IEvent {
-        if (namespace == this.pageNamespace) {
-            return deserializeEntryEvent(str);
-        } else if (namespace == this.headerNamespace) {
-            return deserializeHeaderEvent(str);
-        } else {
-            throw new Error("Unknown namespace: " + namespace);
-        }
+    public deserializeEv(n: Namespace, s: string): IEvent | undefined {
+        if (n == this.pageNamespace) { return deserializeEntryEvent(s); }
+        if (n == this.headerNamespace) { return deserializeHeaderEvent(s); }
     }
 
     public getRecord(
