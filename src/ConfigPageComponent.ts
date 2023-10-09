@@ -59,31 +59,14 @@ export class ConfigObj implements IObj<SetEntryEvent> {
     }
 }
 
-export class ConfigEntryId {
+/** A component for storing a configuration value in a page. */
+export class ConfigEntryComponent {
     public readonly namespace: Namespace;
-    public readonly key: number;
+    private key: number;
+
     public constructor(namespace: Namespace, key: number) {
         this.namespace = namespace;
         this.key = key;
-    }
-}
-
-/** A component for storing a configuration value in a page. */
-export class ConfigEntryComponent<T> {
-    public readonly namespace: Namespace;
-    private key: number;
-    private fmt: string;
-    private defaultValue: T;
-
-    public constructor(
-        id: ConfigEntryId,
-        fmt: string,
-        defaultValue: T,
-    ) {
-        this.namespace = id.namespace;
-        this.key = id.key;
-        this.fmt = fmt;
-        this.defaultValue = defaultValue;
     }
 
     public deserializeObj(n: Namespace, s?: string): ConfigObj | undefined {
@@ -111,19 +94,15 @@ export class ConfigEntryComponent<T> {
         }
     }
 
-    public get(cl: TxCollection): T {
-        const str = cl
-            .getStoreCast<ConfigObj, SetEntryEvent>(this.namespace)
+    public get(cl: TxCollection): string | undefined {
+        return cl.getStoreCast<ConfigObj, SetEntryEvent>(this.namespace)
             .getPage(0 as PageNum)
             .obj
             .entries
             .get(this.key);
-        if (!str) { return this.defaultValue; }
-        return string.unpack(this.fmt, str)[0];
     }
 
-    public set(cl: TxCollection, value: T): void {
-        const str = string.pack(this.fmt, value);
+    public set(cl: TxCollection, str: string): void {
         cl.getStoreCast<ConfigObj, SetEntryEvent>(this.namespace)
             .getPage(0 as PageNum)
             .doEvent(new SetEntryEvent(this.key, str));
