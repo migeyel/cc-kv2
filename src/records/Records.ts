@@ -37,7 +37,7 @@ import {
 /** The size of a serialized record ID, in bytes. */
 export const RECORD_ID_BYTES = PAGE_LINK_BYTES + ENTRY_ID_BYTES;
 
-const RECORD_ID_FMT = "<I" + PAGE_LINK_BYTES + "I" + ENTRY_OVERHEAD;
+const RECORD_ID_FMT = "<I" + PAGE_LINK_BYTES + "I" + ENTRY_ID_BYTES;
 
 /** An ID for a record, containing a page number and an entry ID in the page. */
 export class RecordId {
