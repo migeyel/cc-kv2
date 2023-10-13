@@ -371,6 +371,8 @@ export class TxCollection {
                 .getPage(event.pageNum);
             if (page.pageLsn) {
                 if (page.pageLsn < actLsn) { page.redoEvent(event); }
+            } else if (this.state.actState.pinnedPages.has(page)) {
+                page.redoEvent(event);
             } else if (event.updateType == PageUpdateType.CREATED) {
                 page.redoEvent(event);
             }

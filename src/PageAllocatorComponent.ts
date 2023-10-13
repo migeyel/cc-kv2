@@ -72,6 +72,6 @@ export class PageAllocatorComponent {
     }
 
     public deserializeEv(n: Namespace, s: string): IEvent | undefined {
-        return this.numPagesConfig.deserializeObj(n, s);
+        return this.numPagesConfig.deserializeEv(n, s);
     }
 }

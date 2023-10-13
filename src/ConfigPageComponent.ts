@@ -85,7 +85,7 @@ export class ConfigEntryComponent {
 
     public deserializeEv(n: Namespace, s: string): SetEntryEvent | undefined {
         if (n != this.namespace) { return; }
-        if (s.length == CONFIG_KEY_BYTES) {
+        if (s.length != CONFIG_KEY_BYTES) {
             const [key, value] = string.unpack(SET_ENTRY_FMT1, s);
             return new SetEntryEvent(key, value);
         } else {
