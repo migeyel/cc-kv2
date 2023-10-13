@@ -3,7 +3,7 @@ import { uIntLenBytes } from "../util";
 
 /**
  * A class that a page belongs to, based on how full it is. This number varies
- * from 0 to NUM_SIZE_CLASSES, inclusive.
+ * from 0 to MAX_SIZE_CLASS, inclusive.
  *
  * Size classes exist to solve the free space finding problem: How do you find
  * a page with enough free space to insert a record without wasting space?

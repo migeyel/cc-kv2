@@ -4,11 +4,11 @@ import { NO_LINK } from "./RecordPage";
 import { MAX_SIZE_CLASS, PAGE_LINK_BYTES, SizeClass } from "./SizeClass";
 
 const EVENT_FMT = "<" + string.rep("I" + PAGE_LINK_BYTES, 2);
-const LINKS_FMT = "<" + string.rep("I" + PAGE_LINK_BYTES, MAX_SIZE_CLASS);
+const LINKS_FMT = "<" + string.rep("I" + PAGE_LINK_BYTES, MAX_SIZE_CLASS + 1);
 
 // TODO Idk when or where to check that this value holds.
 /** The smallest page size that can hold the full header. */
-export const MIN_PAGE_SIZE = PAGE_LINK_BYTES * MAX_SIZE_CLASS;
+export const MIN_PAGE_SIZE = PAGE_LINK_BYTES * (MAX_SIZE_CLASS + 1);
 
 /** A header for several size class linked-lists. Contains an array of links. */
 export class HeaderObj implements IObj<HeaderEvent> {
