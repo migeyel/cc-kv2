@@ -1,5 +1,7 @@
+import { WeakQueue } from "../WeakQueue";
+
 export class LockedResource {
-    public queue = new TicketQueue();
+    public queue = new WeakQueue<Ticket>();
     public slot?: Lock;
 }
 
@@ -31,7 +33,8 @@ export class Lock {
         }
 
         // Enter the queue.
-        const ownTicket = resource.queue.enqueue(LockMode.EXCLUSIVE);
+        const ownTicket = { mode: LockMode.EXCLUSIVE };
+        resource.queue.enqueue(ownTicket);
         while (true) {
             os.pullEvent("lock_released");
             if (resource.queue.peek() == ownTicket && !resource.slot) {
@@ -54,7 +57,8 @@ export class Lock {
         }
 
         // Enter the queue.
-        const ownTicket = resource.queue.enqueue(LockMode.SHARED);
+        const ownTicket = { mode: LockMode.SHARED };
+        resource.queue.enqueue(ownTicket);
         while (true) {
             os.pullEvent("lock_released");
             if (resource.queue.peek() == ownTicket) {
@@ -107,7 +111,8 @@ export class Lock {
         this.isUpgrading = true;
 
         // Enter the queue with an exclusive intent.
-        const _ticket = this.resource.queue.enqueue(LockMode.EXCLUSIVE);
+        const ticket = { mode: LockMode.EXCLUSIVE };
+        this.resource.queue.enqueue(ticket);
         while (true) {
             const front = this.resource.queue.peek();
             if (
@@ -145,52 +150,6 @@ export class Lock {
         assert(this.isHeld(), "attempt to interact with a non-held lock");
         if (this.refCount-- == 0) { this.resource.slot = undefined; }
         os.queueEvent("lock_released");
-    }
-}
-
-/** A queue of tickets held by threads waiting for a lock to be released. */
-class TicketQueue {
-    // This queue is specialized in letting ticket holders drop their tickets.
-    // This is necessary because a thread can be cancelled while waiting on a
-    // lock, which causes its ticket to be dropped when the thread is dropped.
-    private entries = setmetatable(
-        new LuaMap<number, Ticket>(),
-        { __mode: "v" },
-    );
-
-    private front = 1;
-    private back = 1;
-
-    public isEmpty(): boolean {
-        return !next(this.entries)[0];
-    }
-
-    public enqueue(mode: LockMode): Ticket {
-        const ticket = { mode };
-        this.entries.set(this.back, ticket);
-        this.back += 1;
-        return ticket;
-    }
-
-    public peek(): Ticket | undefined {
-        if (this.isEmpty()) { return; }
-        while (this.front < this.back) {
-            const out = this.entries.get(this.front);
-            if (out) { return out; }
-            this.front += 1;
-        }
-    }
-
-    public dequeue(): Ticket | undefined {
-        if (this.isEmpty()) { return; }
-        while (this.front < this.back) {
-            const out = this.entries.get(this.front);
-            this.entries.delete(this.front);
-            this.front += 1;
-            if (out) {
-                return out;
-            }
-        }
     }
 }
 
