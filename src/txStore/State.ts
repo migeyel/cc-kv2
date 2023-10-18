@@ -1,4 +1,4 @@
-import { LockedResource } from "../Lock";
+import { LockedResource } from "../lock/Lock";
 import { RecordLog } from "../RecordLog";
 import { Namespace, PageNum } from "../store/IPageStore";
 import { AnyTxPage, TxId } from "./LogStore";
