@@ -1,6 +1,8 @@
 import { WeakQueue } from "../WeakQueue";
+import uuid4 from "../uuid";
 
 export class LockedResource {
+    public id = uuid4();
     public queue = new WeakQueue<Ticket>();
     public slot?: Lock;
 }
@@ -8,6 +10,8 @@ export class LockedResource {
 /** A held lock on a resource. */
 export class Lock {
     private mode: LockMode;
+
+    public readonly owner: LuaThread;
 
     /** The shared resource, which includes a slot and a queue. */
     private resource: LockedResource;
@@ -19,6 +23,7 @@ export class Lock {
     private isUpgrading = false;
 
     private constructor(resource: LockedResource, mode: LockMode) {
+        this.owner = coroutine.running()[0];
         this.resource = resource;
         this.mode = mode;
     }
@@ -36,7 +41,7 @@ export class Lock {
         const ownTicket = { mode: LockMode.EXCLUSIVE };
         resource.queue.enqueue(ownTicket);
         while (true) {
-            os.pullEvent("lock_released");
+            coroutine.yield("lock_released", resource.id);
             if (resource.queue.peek() == ownTicket && !resource.slot) {
                 // We've reached the front, and there's no lock in the slot.
                 resource.queue.dequeue();
@@ -60,7 +65,7 @@ export class Lock {
         const ownTicket = { mode: LockMode.SHARED };
         resource.queue.enqueue(ownTicket);
         while (true) {
-            os.pullEvent("lock_released");
+            coroutine.yield("lock_released", resource.id);
             if (resource.queue.peek() == ownTicket) {
                 // We've reached the front.
                 const held2 = resource.slot;
@@ -126,7 +131,7 @@ export class Lock {
                 this.isUpgrading = false;
                 return true;
             }
-            os.pullEvent("lock_released");
+            coroutine.yield("lock_released", this.resource.id);
         }
     }
 
@@ -138,7 +143,7 @@ export class Lock {
         assert(this.isHeld(), "attempt to interact with a non-held lock");
         if (this.isShared()) { return; }
         this.mode = LockMode.SHARED;
-        os.queueEvent("lock_released");
+        os.queueEvent("lock_released", this.resource.id);
     }
 
     /**
@@ -149,7 +154,7 @@ export class Lock {
     public release() {
         assert(this.isHeld(), "attempt to interact with a non-held lock");
         if (this.refCount-- == 0) { this.resource.slot = undefined; }
-        os.queueEvent("lock_released");
+        os.queueEvent("lock_released", this.resource.id);
     }
 }
 
