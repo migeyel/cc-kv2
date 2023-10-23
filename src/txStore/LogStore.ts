@@ -281,6 +281,9 @@ export class TxCollection {
     private collection: IStoreCollection<IPage, IPageStore<IPage>>;
     private config: IConfig;
     private sh = new ShMap<Namespace, TxStore<IObj<IEvent>, IEvent>>();
+    private lastCpLsn!: number;
+    private autoCpLimit: number;
+    private autoFlushLimitSize?: number;
 
     /** A resource for coarsely synchronizing collection access. */
     public readonly resource = new LockedResource();
@@ -291,7 +294,11 @@ export class TxCollection {
         log: RecordLog,
         collection: IStoreCollection<IPage, IPageStore<IPage>>,
         config: IConfig,
+        autoCpLimit: number,
+        autoFlushLimitSize?: number,
     ) {
+        this.autoCpLimit = autoCpLimit;
+        this.autoFlushLimitSize = autoFlushLimitSize;
         this.pageSize = collection.pageSize;
         this.config = config;
         this.collection = collection;
@@ -358,6 +365,7 @@ export class TxCollection {
         }));
 
         this.closeAct(txId, actLsn, actLsn);
+        this.autoCheckpoint();
 
         return result;
     }
@@ -402,6 +410,7 @@ export class TxCollection {
         }));
 
         this.closeAct(record.txId, clrLsn, record.prevLsn);
+        this.autoCheckpoint();
     }
 
     /** Rolls a transaction back. */
@@ -453,7 +462,7 @@ export class TxCollection {
             }
         }
 
-        this.state.log.appendRecord(LogRecord.serialize({
+        this.lastCpLsn = this.state.log.appendRecord(LogRecord.serialize({
             ty: RecordType.CHECKPOINT,
             dpt,
             tt,
@@ -462,9 +471,26 @@ export class TxCollection {
         this.state.log.trimToPoint(trimLsn);
     }
 
+    private autoCheckpoint() {
+        const logCpNum = this.state.log.getEnd() - this.lastCpLsn;
+        if (logCpNum < this.autoCpLimit) { return; }
+        this.checkpoint(this.autoFlushLimitSize);
+    }
+
+    private throttle(t0: number): number {
+        if (os.epoch("utc") - t0 > 100) {
+            os.queueEvent("cckv2_recovery_throttle");
+            os.pullEvent("cckv2_recovery_throttle");
+            return os.epoch("utc");
+        } else {
+            return t0;
+        }
+    }
+
     /** Performs state recovery from the log. */
     private recover() {
         const log = this.state.log;
+        let t0 = os.epoch("utc");
 
         // Get where the last checkpoint is.
         let walkLsn = log.getStart();
@@ -474,7 +500,10 @@ export class TxCollection {
             const recordTy = LogRecord.getType(recordStr);
             if (recordTy == RecordType.CHECKPOINT) { lastCpLsn = walkLsn; }
             walkLsn = nextLsn;
+            t0 = this.throttle(t0);
         }
+
+        this.lastCpLsn = assert(lastCpLsn);
 
         // Read checkpoint.
         const lastCp = CheckpointRecord.deserialize(
@@ -503,6 +532,7 @@ export class TxCollection {
                 this.state.deleteTtEntry(record.txId);
             }
             analysisLsn = nextLsn;
+            t0 = this.throttle(t0);
         }
 
         // Undo pass.
@@ -527,6 +557,7 @@ export class TxCollection {
                 } else {
                     throw new Error("Invalid undo record " + record.ty);
                 }
+                t0 = this.throttle(t0);
             } else {
                 break;
             }
