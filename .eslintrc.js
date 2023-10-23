@@ -19,7 +19,7 @@ module.exports = {
     ],
     "rules": {
         "prefer-const": ["error", {
-            destructuring: "any",
+            destructuring: "all",
             ignoreReadBeforeAssign: false,
         }],
         "indent": ["error", 4],
@@ -56,6 +56,9 @@ module.exports = {
             argsIgnorePattern: "^_",
             varsIgnorePattern: "^_",
         }],
+        "@typescript-eslint/no-namespace": "off",
+        "@typescript-eslint/no-this-alias": "off",
+        "@typescript-eslint/no-explicit-any": "off",
         "no-unused-vars": ["error", {
             argsIgnorePattern: "^_",
             varsIgnorePattern: "^_",
