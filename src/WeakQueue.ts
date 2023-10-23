@@ -5,11 +5,7 @@
  * its insertions and deletions follow the FIFO order.
  */
 export class WeakQueue<T extends object> {
-    private entries = setmetatable(
-        new LuaMap<number, T>(),
-        { __mode: "v" },
-    );
-
+    private entries = setmetatable(new LuaMap<number, T>(), { __mode: "v" });
     private front = 1;
     private back = 1;
 
