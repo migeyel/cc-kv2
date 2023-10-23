@@ -11,8 +11,6 @@ export class LockedResource {
 export class Lock {
     private mode: LockMode;
 
-    public readonly owner: LuaThread;
-
     /** The shared resource, which includes a slot and a queue. */
     private resource: LockedResource;
 
@@ -23,7 +21,6 @@ export class Lock {
     private isUpgrading = false;
 
     private constructor(resource: LockedResource, mode: LockMode) {
-        this.owner = coroutine.running()[0];
         this.resource = resource;
         this.mode = mode;
     }
@@ -104,16 +101,11 @@ export class Lock {
 
     /**
      * Tries to upgrade from shared to exclusive. No-op on exclusive locks.
-     * @returns Whether the upgrade succeeded or failed in deadlock.
      * @throws If this lock has been released.
      */
-    public tryUpgrade(): boolean {
+    public upgrade(): void {
         assert(this.isHeld(), "attempt to interact with a non-held lock");
-        if (!this.isShared()) { return true; }
-
-        // Declare our intent to upgrade.
-        if (this.isUpgrading) { return false; }
-        this.isUpgrading = true;
+        if (!this.isShared()) { return; }
 
         // Enter the queue with an exclusive intent.
         const ticket = { mode: LockMode.EXCLUSIVE };
@@ -128,8 +120,7 @@ export class Lock {
                 // The front is an exclusive intent and we're the sole lock
                 // holder. Upgrading right now is as fair as it can be.
                 this.mode = LockMode.EXCLUSIVE;
-                this.isUpgrading = false;
-                return true;
+                return;
             }
             coroutine.yield("lock_released", this.resource.id);
         }
