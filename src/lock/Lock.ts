@@ -1,8 +1,10 @@
 import { WeakQueue } from "../WeakQueue";
 import { uid } from "../uid";
 
+const LOCK_RELEASED = "lock_released";
+
 export class LockedResource {
-    public event = "lock_released_" + uid();
+    public id = uid();
     public queue = new WeakQueue<Ticket>();
     public slot?: Lock;
 }
@@ -41,7 +43,7 @@ export class Lock {
                 resource.slot = ownLock;
                 return ownLock;
             }
-            coroutine.yield(resource.event);
+            coroutine.yield(LOCK_RELEASED, resource.id);
         }
     }
 
@@ -74,7 +76,7 @@ export class Lock {
                     return held2;
                 }
             }
-            coroutine.yield(resource.event);
+            coroutine.yield(LOCK_RELEASED, resource.id);
         }
     }
 
@@ -119,7 +121,7 @@ export class Lock {
                 this.mode = LockMode.EXCLUSIVE;
                 return;
             }
-            coroutine.yield(this.resource.event);
+            coroutine.yield(LOCK_RELEASED, this.resource.id);
         }
     }
 
@@ -131,7 +133,7 @@ export class Lock {
         assert(this.isHeld(), "attempt to interact with a non-held lock");
         if (this.isShared()) { return; }
         this.mode = LockMode.SHARED;
-        os.queueEvent(this.resource.event);
+        os.queueEvent(LOCK_RELEASED, this.resource.id);
     }
 
     /**
@@ -142,7 +144,7 @@ export class Lock {
     public release() {
         assert(this.isHeld(), "attempt to interact with a non-held lock");
         if (--this.refCount == 0) { this.resource.slot = undefined; }
-        os.queueEvent(this.resource.event);
+        os.queueEvent(LOCK_RELEASED, this.resource.id);
     }
 }
 
