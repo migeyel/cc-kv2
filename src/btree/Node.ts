@@ -258,8 +258,8 @@ export class BTreeComponent {
      * @param cl - The collection to operate.
      * @param key - The target key.
      * @param leaf - The leaf node where the target should be in the tree.
-     * @returns The key-value pair for the largest entry less-than or equal to
-     * the target, if it exists.
+     * @returns The key-value pair for the largest entry less-than the target,
+     * if it exists.
      * @returns The key-value pair for the smallest entry greater-than or equal
      * to the target, if it exists.
      */
@@ -270,8 +270,11 @@ export class BTreeComponent {
     ): LuaMultiReturn<[KvPair | undefined, KvPair | undefined]> {
         const [iLow, iHigh] = this.flankIndexes(cl, leaf, key);
 
+        // iPrev points to the strictly less-than index entry, or -1.
+        const iPrev = iLow == iHigh ? iLow - 1 : iLow;
+
         let kvLow: KvPair | undefined;
-        if (iLow == -1) {
+        if (iPrev == -1) {
             // The value is the last value in the previous node, if it exists.
             if (leaf.prev) {
                 const prev = cl
@@ -286,14 +289,9 @@ export class BTreeComponent {
         } else {
             // The value is in the current node.
             kvLow = {
-                key: this.vrc.read(cl, leaf.keys[iLow]),
-                value: this.vrc.read(cl, leaf.vals[iLow]),
+                key: this.vrc.read(cl, leaf.keys[iPrev]),
+                value: this.vrc.read(cl, leaf.vals[iPrev]),
             };
-        }
-
-        // Special early exit equality.
-        if (iLow == iHigh) {
-            return $multi(kvLow, kvLow);
         }
 
         let kvHigh: KvPair | undefined;
@@ -324,8 +322,8 @@ export class BTreeComponent {
      * Searches a node for the keys flanking a target.
      * @param parent - The parent node of where the target should be in the
      * tree.
-     * @returns The key-value pair for the largest entry less-than or equal to
-     * the target, if it exists.
+     * @returns The key-value pair for the largest entry less-than the target,
+     * if it exists.
      * @returns The key-value pair for the smallest entry greater-than or equal
      * to the target, if it exists.
      */
@@ -360,8 +358,8 @@ export class BTreeComponent {
 
     /**
      * Searches the tree for an entry.
-     * @returns The key-value pair of the greatest entry less-than or equal to
-     * the key, if it exists.
+     * @returns The key-value pair of the greatest entry less-than the key, if
+     * it exists.
      * @returns The key-value pair of the smallest entry greater-than or equal
      * to the key, if it exists.
      */
