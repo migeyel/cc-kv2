@@ -17,9 +17,6 @@ export class Lock {
     /** Number of times this lock has been locked, always 1 for exclusive. */
     private refCount = 1;
 
-    /** Whether there's a thread wishing to upgrade this lock. */
-    private isUpgrading = false;
-
     private constructor(resource: LockedResource, mode: LockMode) {
         this.resource = resource;
         this.mode = mode;
@@ -38,13 +35,13 @@ export class Lock {
         const ownTicket = { mode: LockMode.EXCLUSIVE };
         resource.queue.enqueue(ownTicket);
         while (true) {
-            coroutine.yield("lock_released", resource.id);
             if (resource.queue.peek() == ownTicket && !resource.slot) {
                 // We've reached the front, and there's no lock in the slot.
                 resource.queue.dequeue();
                 resource.slot = ownLock;
                 return ownLock;
             }
+            coroutine.yield("lock_released", resource.id);
         }
     }
 
@@ -62,7 +59,6 @@ export class Lock {
         const ownTicket = { mode: LockMode.SHARED };
         resource.queue.enqueue(ownTicket);
         while (true) {
-            coroutine.yield("lock_released", resource.id);
             if (resource.queue.peek() == ownTicket) {
                 // We've reached the front.
                 const held2 = resource.slot;
@@ -78,6 +74,7 @@ export class Lock {
                     return held2;
                 }
             }
+            coroutine.yield("lock_released", resource.id);
         }
     }
 
