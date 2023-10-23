@@ -108,7 +108,7 @@ export class RecordLog {
         for (const i of $range(this.headPageNum, trimEnd)) {
             this.store.getPage(i as PageNum).delete();
         }
-        if  (trimEnd + 1 != this.headPageNum) {
+        if (trimEnd + 1 != this.headPageNum) {
             this.headPageNum = trimEnd + 1;
             this.firstLsn = trimLsn;
         }
@@ -219,11 +219,23 @@ export class RecordLog {
             pageNums.add(0 as PageNum);
         }
 
+        // Find the smallest page number.
         let minPageNum: PageNum = next(pageNums)[0];
-        let maxPageNum = minPageNum;
         for (const pageNum of pageNums) {
-            if (pageNum > maxPageNum) { maxPageNum = pageNum; }
             if (pageNum < minPageNum) { minPageNum = pageNum; }
+        }
+
+        // Find the largest contiguous page number.
+        let maxPageNum = minPageNum;
+        while (pageNums.has(maxPageNum + 1 as PageNum)) {
+            maxPageNum++;
+        }
+
+        // Delete non-contiguous pages.
+        for (const pageNum of pageNums) {
+            if (pageNum > maxPageNum) {
+                this.store.getPage(pageNum).delete();
+            }
         }
 
         this.headPageNum = minPageNum;
