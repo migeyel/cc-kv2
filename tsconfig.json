@@ -10,7 +10,6 @@
     "tstl": {
         "luaTarget": "5.2",
         "luaLibImport": "require-minimal",
-        "sourceMapTraceback": true
     },
     "include": [ "./src/**/*.ts" ]
 }
