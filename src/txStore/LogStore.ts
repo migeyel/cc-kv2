@@ -24,6 +24,7 @@ import * as ClrRecord from "./LogRecord/ClrRecord";
 import * as CommitRecord from "./LogRecord/CommitRecord";
 import { TtEntry, DptEntry } from "./LogRecord/CheckpointRecord";
 import { ActState, State } from "./State";
+import { LockedResource } from "../lock/Lock";
 
 export type TxId = number & { readonly __brand: unique symbol }
 
@@ -280,6 +281,9 @@ export class TxCollection {
     private collection: IStoreCollection<IPage, IPageStore<IPage>>;
     private config: IConfig;
     private sh = new ShMap<Namespace, TxStore<IObj<IEvent>, IEvent>>();
+
+    /** A resource for coarsely synchronizing collection access. */
+    public readonly resource = new LockedResource();
 
     public readonly pageSize: PageSize;
 
