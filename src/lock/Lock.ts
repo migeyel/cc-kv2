@@ -41,7 +41,7 @@ export class Lock {
                 resource.slot = ownLock;
                 return ownLock;
             }
-            coroutine.yield("lock_released", resource.id);
+            coroutine.yield(resource.event);
         }
     }
 
@@ -70,11 +70,11 @@ export class Lock {
                 } else if (held2.mode == LockMode.SHARED) {
                     // There's another shared lock in the slot.
                     resource.queue.dequeue();
-                    held2.refCount += 1;
+                    held2.refCount++;
                     return held2;
                 }
             }
-            coroutine.yield("lock_released", resource.id);
+            coroutine.yield(resource.event);
         }
     }
 
@@ -119,7 +119,7 @@ export class Lock {
                 this.mode = LockMode.EXCLUSIVE;
                 return;
             }
-            coroutine.yield("lock_released", this.resource.id);
+            coroutine.yield(this.resource.event);
         }
     }
 
@@ -131,7 +131,7 @@ export class Lock {
         assert(this.isHeld(), "attempt to interact with a non-held lock");
         if (this.isShared()) { return; }
         this.mode = LockMode.SHARED;
-        os.queueEvent("lock_released", this.resource.id);
+        os.queueEvent(this.resource.event);
     }
 
     /**
@@ -141,8 +141,8 @@ export class Lock {
      */
     public release() {
         assert(this.isHeld(), "attempt to interact with a non-held lock");
-        if (this.refCount-- == 0) { this.resource.slot = undefined; }
-        os.queueEvent("lock_released", this.resource.id);
+        if (--this.refCount == 0) { this.resource.slot = undefined; }
+        os.queueEvent(this.resource.event);
     }
 }
 
