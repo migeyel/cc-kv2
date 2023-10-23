@@ -31,9 +31,26 @@ let state = sha256(table.concat([
     state = sha256(state + block);
 }
 
-export default function uuid4() {
+function rand32(): string {
     state = sha256(state + "1");
-    const bytes = string.byte(sha256(state + "0"), 1, -1);
+    return sha256(state + "0");
+}
+
+let uidSuffix = string.sub(rand32(), 1, 28);
+let uidCounter = 0;
+
+/** Generates a unique 32-byte string. */
+export function uid() {
+    if (uidCounter == 2 ** 32) {
+        uidSuffix = string.sub(rand32(), 1, 28);
+        uidCounter = 0;
+    }
+    return string.pack(">I4c28", uidCounter++, uidSuffix);
+}
+
+/** Generates a new UUID4. */
+export function uuid4() {
+    const bytes = string.byte(rand32(), 1, -1);
     bytes[6] = bytes[7] & 0x0f | 0x40;
     bytes[8] = bytes[8] & 0x3f | 0x80;
     return string.format(

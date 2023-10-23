@@ -1,8 +1,8 @@
 import { WeakQueue } from "../WeakQueue";
-import uuid4 from "../uuid";
+import { uid } from "../uid";
 
 export class LockedResource {
-    public id = uuid4();
+    public event = "lock_released_" + uid();
     public queue = new WeakQueue<Ticket>();
     public slot?: Lock;
 }
