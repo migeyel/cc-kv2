@@ -95,6 +95,7 @@ class Transaction {
     private cl: TxCollection;
     private config: SetEntryConfig;
     private kvlm: KvLockManager;
+    private txsMap: LuaTable<TxId, Transaction>;
     private active = true;
 
     public constructor(
@@ -102,11 +103,13 @@ class Transaction {
         cl: TxCollection,
         config: SetEntryConfig,
         kvlm: KvLockManager,
+        txsMap: LuaTable<TxId, Transaction>,
     ) {
         this.id = id;
         this.cl = cl;
         this.config = config;
         this.kvlm = kvlm;
+        this.txsMap = txsMap;
     }
 
     /**
@@ -197,6 +200,7 @@ class Transaction {
         lock.release();
         this.kvlm.releaseLocks(this.id);
         this.active = false;
+        this.txsMap.delete(this.id);
     }
 
     /** Rolls the transaction back. */
@@ -207,6 +211,7 @@ class Transaction {
         lock.release();
         this.kvlm.releaseLocks(this.id);
         this.active = false;
+        this.txsMap.delete(this.id);
     }
 }
 
@@ -294,7 +299,15 @@ export class KvStore {
         const max = this.transactions.length();
         let txId = math.random(0, max) as TxId;
         if (this.transactions.has(txId)) { txId = max + 1 as TxId; }
-        const out = new Transaction(txId, this.cl, this.config, this.kvlm);
+
+        const out = new Transaction(
+            txId,
+            this.cl,
+            this.config,
+            this.kvlm,
+            this.transactions,
+        );
+
         this.transactions.set(txId, out);
         return out;
     }
