@@ -18,7 +18,6 @@ import {
 } from "./txStore/LogStore";
 import { KvLockManager } from "./lock/KvLockManager";
 import DirLock from "./DirLock";
-import { Lock } from "./lock/Lock";
 import * as expect from "cc/expect";
 
 type SetEntryAct = {
@@ -121,9 +120,7 @@ class Transaction {
         expect(1, key, "string");
         assert(this.active, "can't operate on an inactive transaction");
         this.kvlm.acquireGet(key, this.id);
-        const lock = Lock.shared(this.cl.resource);
         const [_, pair] = this.config.btree.search(this.cl, key);
-        lock.release();
         if (pair && pair.key == key) { return pair.value; }
     }
 
@@ -137,9 +134,7 @@ class Transaction {
         assert(this.active, "can't operate on an inactive transaction");
         const nextSmallestKey = key ? key + "\0" : "";
         this.kvlm.acquireNext(this.cl, nextSmallestKey, this.id);
-        const lock = Lock.shared(this.cl.resource);
         const [_, pair] = this.config.btree.search(this.cl, nextSmallestKey);
-        lock.release();
         if (pair) {
             return $multi(pair.key, pair.value);
         } else {
@@ -174,9 +169,7 @@ class Transaction {
         expect(2, value, "string");
         assert(this.active, "can't operate on an inactive transaction");
         this.kvlm.acquireSet(this.cl, key, this.id);
-        const lock = Lock.exclusive(this.cl.resource);
         this.cl.doAct(this.id, <SetEntryAct>{ key, value });
-        lock.release();
     }
 
     /**
@@ -187,17 +180,13 @@ class Transaction {
         expect(1, key, "string");
         assert(this.active, "can't operate on an inactive transaction");
         this.kvlm.acquireDelete(this.cl, key, this.id);
-        const lock = Lock.exclusive(this.cl.resource);
         this.cl.doAct(this.id, <SetEntryAct>{ key });
-        lock.release();
     }
 
     /** Commits the transaction. */
     public commit(): void {
         assert(this.active, "can't operate on an inactive transaction");
-        const lock = Lock.exclusive(this.cl.resource);
         this.cl.commit(this.id);
-        lock.release();
         this.kvlm.releaseLocks(this.id);
         this.active = false;
         this.txsMap.delete(this.id);
@@ -206,9 +195,7 @@ class Transaction {
     /** Rolls the transaction back. */
     public rollback(): void {
         if (!this.active) { return; }
-        const lock = Lock.exclusive(this.cl.resource);
         this.cl.rollback(this.id);
-        lock.release();
         this.kvlm.releaseLocks(this.id);
         this.active = false;
         this.txsMap.delete(this.id);

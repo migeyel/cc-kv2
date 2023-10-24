@@ -115,16 +115,7 @@ export class KvLockManager {
             }
         }
         this.locksPerTx.delete(txId);
-    }
-
-    private syncSearch(
-        cl: TxCollection,
-        key: string,
-    ):  LuaMultiReturn<[KvPair | undefined, KvPair | undefined]> {
-        const lock = Lock.shared(cl.resource);
-        const [prev, next] = this.btree.search(cl, key);
-        lock.release();
-        return $multi(prev, next);
+        os.queueEvent("lock_released");
     }
 
     private exclusiveFence(
@@ -138,7 +129,7 @@ export class KvLockManager {
         let oldPrev = prev;
         let oldLock = this.exclusive(this.getFence(oldPrev?.key), txId);
         while (true) {
-            const [newPrev] = this.syncSearch(cl, key);
+            const [newPrev] = this.btree.search(cl, key);
             if (oldPrev?.key == newPrev?.key) { break; }
             const newLock = this.exclusive(this.getFence(newPrev?.key), txId);
             this.release(oldLock);
@@ -158,7 +149,7 @@ export class KvLockManager {
         let oldPrev = prev;
         let oldLock = this.shared(this.getFence(oldPrev?.key), txId);
         while (true) {
-            const [newPrev] = this.syncSearch(cl, key);
+            const [newPrev] = this.btree.search(cl, key);
             if (oldPrev?.key == newPrev?.key) { break; }
             const newLock = this.shared(this.getFence(newPrev?.key), txId);
             this.release(oldLock);
@@ -171,7 +162,7 @@ export class KvLockManager {
     public acquireSet(cl: TxCollection, key: string, txId: TxId): void {
         this.exclusive(this.getContent(key), txId);
 
-        const [prev, next] = this.syncSearch(cl, key);
+        const [prev, next] = this.btree.search(cl, key);
         if (!next || next.key != key) {
             // Key doesn't exist, insertion requires acquiring fence locks.
             this.exclusiveFence(cl, key, txId, prev);
@@ -182,7 +173,7 @@ export class KvLockManager {
     public acquireDelete(cl: TxCollection, key: string, txId: TxId): void {
         this.exclusive(this.getContent(key), txId);
 
-        const [prev, next] = this.syncSearch(cl, key);
+        const [prev, next] = this.btree.search(cl, key);
         if (next && next.key == key) {
             // Key exists, deletion requires acquiring fence locks.
             this.exclusiveFence(cl, key, txId, prev);
@@ -196,13 +187,13 @@ export class KvLockManager {
 
     /** Acquires locks for getting the next key and value. */
     public acquireNext(cl: TxCollection, key: string, txId: TxId): void {
-        const [prev, next] = this.syncSearch(cl, key);
+        const [prev, next] = this.btree.search(cl, key);
         if (!next || next.key != key) {
             // Key doesn't exist, we need to acquire fence locks.
             this.sharedFence(cl, key, txId, prev);
 
             // Now we can carry on the search and lock the content.
-            const [_, cNext] = this.syncSearch(cl, key);
+            const [_, cNext] = this.btree.search(cl, key);
             if (cNext) { this.shared(this.getContent(cNext.key), txId); }
         } else {
             // Key exists so lock the content.
