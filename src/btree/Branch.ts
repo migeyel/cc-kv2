@@ -170,6 +170,7 @@ export const BRANCH_OVERHEAD = 1 + 2 * ENTRY_IDX_BYTES + PAGE_LINK_BYTES;
 
 /** A B+ tree branch node with sorted keys. */
 export class BranchObj implements IObj<BranchEvent> {
+    public readonly type = "branch";
     public height: number;
     public children: PageNum[];
     public keys: VarRecordId[];

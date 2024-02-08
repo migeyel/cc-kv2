@@ -332,7 +332,7 @@ export class BTreeComponent {
         key: string,
         parent: NodeObj,
     ): LuaMultiReturn<[KvPair | undefined, KvPair | undefined]> {
-        if (parent instanceof LeafObj) {
+        if (parent.type == "leaf") {
             return this.searchLeaf(
                 cl,
                 key,
@@ -582,7 +582,7 @@ export class BTreeComponent {
         value: string,
         parent: TxPage<NodeObj, NodeEvent>,
     ): InsertionResult {
-        if (parent.obj instanceof LeafObj) {
+        if (parent.obj.type == "leaf") {
             return this.insertLeafEntryMayOverflow(
                 cl,
                 parent as TxPage<LeafObj, LeafEvent>,
@@ -939,7 +939,7 @@ export class BTreeComponent {
         parent: TxPage<NodeObj, NodeEvent>,
         uncles: Siblings,
     ): DeletionResult {
-        if (parent.obj instanceof LeafObj) {
+        if (parent.obj.type == "leaf") {
             return this.deleteLeafEntry(
                 cl,
                 parent as TxPage<LeafObj, LeafEvent>,
@@ -1003,7 +1003,7 @@ export class BTreeComponent {
         const result = this.deleteRecursive(cl, key, root, {});
 
         // handleMerge() may leave a single child on the root. Replace it.
-        if (root.obj.keys.length == 0 && root.obj instanceof BranchObj) {
+        if (root.obj.keys.length == 0 && root.obj.type == "branch") {
             this.setRoot(
                 cl,
                 new RootId(

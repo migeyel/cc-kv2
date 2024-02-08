@@ -141,6 +141,8 @@ export const LEAF_OVERHEAD = 1 + ENTRY_IDX_BYTES + 2 * PAGE_LINK_BYTES;
 
 /** A B+ tree leaf node with sorted keys. */
 export class LeafObj implements IObj<LeafEvent> {
+    public readonly type = "leaf";
+
     /** Leaves always have 0 height. */
     public readonly height = 0;
 
