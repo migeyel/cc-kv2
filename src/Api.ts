@@ -19,6 +19,7 @@ import {
 import { KvLockManager } from "./lock/KvLockManager";
 import DirLock from "./DirLock";
 import * as expect from "cc/expect";
+import { LockHolder } from "./lock/Lock";
 
 type SetEntryAct = {
     key: string,
@@ -95,6 +96,7 @@ class Transaction {
     private config: SetEntryConfig;
     private kvlm: KvLockManager;
     private txsMap: LuaTable<TxId, Transaction>;
+    private holder = new LockHolder();
     private active = true;
 
     public constructor(
@@ -119,7 +121,7 @@ class Transaction {
     public get(key: string): string | undefined {
         expect(1, key, "string");
         assert(this.active, "can't operate on an inactive transaction");
-        this.kvlm.acquireGet(key, this.id);
+        this.kvlm.acquireGet(key, this.holder);
         const [_, pair] = this.config.btree.search(this.cl, key);
         if (pair && pair.key == key) { return pair.value; }
     }
@@ -133,7 +135,7 @@ class Transaction {
         expect(1, key, "string", "nil");
         assert(this.active, "can't operate on an inactive transaction");
         const nextSmallestKey = key ? key + "\0" : "";
-        this.kvlm.acquireNext(this.cl, nextSmallestKey, this.id);
+        this.kvlm.acquireNext(this.cl, nextSmallestKey, this.holder);
         const [_, pair] = this.config.btree.search(this.cl, nextSmallestKey);
         if (pair) {
             return $multi(pair.key, pair.value);
@@ -168,7 +170,7 @@ class Transaction {
         expect(1, key, "string");
         expect(2, value, "string");
         assert(this.active, "can't operate on an inactive transaction");
-        this.kvlm.acquireSet(this.cl, key, this.id);
+        this.kvlm.acquireSet(this.cl, key, this.holder);
         this.cl.doAct(this.id, <SetEntryAct>{ key, value });
     }
 
@@ -179,7 +181,7 @@ class Transaction {
     public delete(key: string): void {
         expect(1, key, "string");
         assert(this.active, "can't operate on an inactive transaction");
-        this.kvlm.acquireDelete(this.cl, key, this.id);
+        this.kvlm.acquireDelete(this.cl, key, this.holder);
         this.cl.doAct(this.id, <SetEntryAct>{ key });
     }
 
@@ -187,7 +189,7 @@ class Transaction {
     public commit(): void {
         assert(this.active, "can't operate on an inactive transaction");
         this.cl.commit(this.id);
-        this.kvlm.releaseLocks(this.id);
+        this.kvlm.releaseLocks(this.holder);
         this.active = false;
         this.txsMap.delete(this.id);
     }
@@ -196,7 +198,7 @@ class Transaction {
     public rollback(): void {
         if (!this.active) { return; }
         this.cl.rollback(this.id);
-        this.kvlm.releaseLocks(this.id);
+        this.kvlm.releaseLocks(this.holder);
         this.active = false;
         this.txsMap.delete(this.id);
     }
