@@ -2,6 +2,36 @@ import { WeakQueue } from "../WeakQueue";
 import { uid } from "../uid";
 
 const LOCK_RELEASED = "lock_released";
+const DEADLOCK_VICTIM = "deadlock_victim";
+
+export const waitForGraph = new LuaMap<LockHolder, LockedResource>();
+
+export function breakDeadlocks() {
+    const open = new LuaSet<LockHolder>();
+    const closed = new LuaSet<LockHolder>();
+
+    const dfs = (v: LockHolder) => {
+        if (closed.has(v)) { return; }
+        if (!waitForGraph.has(v)) { return; }
+        if (open.has(v)) {
+            os.queueEvent(DEADLOCK_VICTIM, v.id);
+            open.delete(v);
+            waitForGraph.delete(v);
+            return;
+        }
+
+        open.add(v);
+        for (const child of waitForGraph.get(v)!.holders) {
+            dfs(child);
+            if (!waitForGraph.has(v)) { return; }
+        }
+        closed.add(v);
+    };
+
+    const vertices = new LuaSet<LockHolder>();
+    for (const [v] of waitForGraph) { vertices.add(v); }
+    for (const v of vertices) { dfs(v); }
+}
 
 export class LockedResource {
     public id = uid();
@@ -11,7 +41,7 @@ export class LockedResource {
 }
 
 class LockHolder {
-
+    public readonly id = uid();
 }
 
 /** A held lock on a resource. */
@@ -39,6 +69,7 @@ export class Lock {
         }
 
         // Enter the queue.
+        waitForGraph.set(holder, resource);
         const ownTicket = { mode: LockMode.EXCLUSIVE };
         resource.queue.enqueue(ownTicket);
         while (true) {
@@ -47,9 +78,18 @@ export class Lock {
                 resource.queue.dequeue();
                 resource.mode = LockMode.EXCLUSIVE;
                 resource.holders.add(holder);
+                waitForGraph.delete(holder);
                 return new Lock(holder, resource);
             }
-            os.pullEvent(LOCK_RELEASED);
+
+            while (true) {
+                const ev = os.pullEvent();
+                if (ev[0] == LOCK_RELEASED) {
+                    break;
+                } else if (ev[0] == DEADLOCK_VICTIM && ev[1] == holder.id) {
+                    throw "deadlock";
+                }
+            }
         }
     }
 
@@ -62,6 +102,7 @@ export class Lock {
         }
 
         // Enter the queue.
+        waitForGraph.set(holder, resource);
         const ownTicket = { mode: LockMode.SHARED };
         resource.queue.enqueue(ownTicket);
         while (true) {
@@ -72,15 +113,25 @@ export class Lock {
                     resource.queue.dequeue();
                     resource.mode = LockMode.SHARED;
                     resource.holders.add(holder);
+                    waitForGraph.delete(holder);
                     return new Lock(holder, resource);
                 } else if (resource.mode == LockMode.SHARED) {
                     // There are shared locks on the resource.
                     resource.queue.dequeue();
                     resource.holders.add(holder);
+                    waitForGraph.delete(holder);
                     return new Lock(holder, resource);
                 }
             }
-            os.pullEvent(LOCK_RELEASED);
+
+            while (true) {
+                const ev = os.pullEvent();
+                if (ev[0] == LOCK_RELEASED) {
+                    break;
+                } else if (ev[0] == DEADLOCK_VICTIM && ev[1] == holder.id) {
+                    throw "deadlock";
+                }
+            }
         }
     }
 
@@ -111,12 +162,12 @@ export class Lock {
         if (!this.isShared()) { return; }
 
         // Enter the queue with an exclusive intent.
+        waitForGraph.set(this.holder, this.resource);
         const ticket = { mode: LockMode.EXCLUSIVE };
         this.resource.queue.enqueue(ticket);
         while (true) {
-            const front = this.resource.queue.peek();
+            const front = this.resource.queue.peek()!;
             if (
-                front &&
                 front.mode == LockMode.EXCLUSIVE &&
                 next(this.resource.holders)[0] == this.holder &&
                 next(this.resource.holders, this.holder)[0] == undefined
@@ -124,9 +175,18 @@ export class Lock {
                 // The front is an exclusive intent and we're the sole lock
                 // holder. Upgrading right now is as fair as it can be.
                 this.resource.mode = LockMode.EXCLUSIVE;
+                waitForGraph.delete(this.holder);
                 return;
             }
-            os.pullEvent(LOCK_RELEASED);
+
+            while (true) {
+                const ev = os.pullEvent();
+                if (ev[0] == LOCK_RELEASED) {
+                    break;
+                } else if (ev[0] == DEADLOCK_VICTIM && ev[1] == this.holder.id) {
+                    throw "deadlock";
+                }
+            }
         }
     }
 

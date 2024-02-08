@@ -1,5 +1,6 @@
 import * as expect from "cc/expect";
 import { KvStore } from "./Api";
+import { breakDeadlocks } from "./lock/Lock";
 
 /**
  * Opens a database in a directory.
@@ -8,4 +9,11 @@ import { KvStore } from "./Api";
 export function open(this: void, dir: string): KvStore {
     expect(1, dir, "string");
     return new KvStore(dir);
+}
+
+export function daemon() {
+    while (true) {
+        sleep(5);
+        breakDeadlocks();
+    }
 }
