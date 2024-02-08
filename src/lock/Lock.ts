@@ -21,7 +21,7 @@ export function breakDeadlocks() {
         }
 
         open.add(v);
-        for (const child of waitForGraph.get(v)!.holders) {
+        for (const [child] of waitForGraph.get(v)!.holders) {
             dfs(child);
             if (!waitForGraph.has(v)) { return; }
         }
@@ -36,18 +36,18 @@ export function breakDeadlocks() {
 export class LockedResource {
     public id = uid();
     public queue = new WeakQueue<Ticket>();
-    public holders = new LuaSet<LockHolder>();
+    public holders = new LuaMap<LockHolder, Lock>();
     public mode?: LockMode;
 }
 
-class LockHolder {
+export class LockHolder {
     public readonly id = uid();
 }
 
 /** A held lock on a resource. */
 export class Lock {
     /** The shared resource, which includes a slot and a queue. */
-    private resource: LockedResource;
+    public readonly resource: LockedResource;
 
     /** The lock's holder. */
     private holder: LockHolder;
@@ -61,11 +61,13 @@ export class Lock {
     }
 
     public static exclusive(holder: LockHolder, resource: LockedResource): Lock {
+        const lock = new Lock(holder, resource);
+
         // If the slot is free, take it.
         if (!resource.mode) {
             resource.mode = LockMode.EXCLUSIVE;
-            resource.holders.add(holder);
-            return new Lock(holder, resource);
+            resource.holders.set(holder, lock);
+            return lock;
         }
 
         // Enter the queue.
@@ -77,9 +79,9 @@ export class Lock {
                 // We've reached the front, and there's no lock in the slot.
                 resource.queue.dequeue();
                 resource.mode = LockMode.EXCLUSIVE;
-                resource.holders.add(holder);
+                resource.holders.set(holder, lock);
                 waitForGraph.delete(holder);
-                return new Lock(holder, resource);
+                return lock;
             }
 
             while (true) {
@@ -94,11 +96,13 @@ export class Lock {
     }
 
     public static shared(holder: LockHolder, resource: LockedResource): Lock {
+        const lock = new Lock(holder, resource);
+
         // If the slot is free, take it.
         if (!resource.mode) {
             resource.mode = LockMode.SHARED;
-            resource.holders.add(holder);
-            return new Lock(holder, resource);
+            resource.holders.set(holder, lock);
+            return lock;
         }
 
         // Enter the queue.
@@ -112,15 +116,15 @@ export class Lock {
                     // There are no locks on the resource.
                     resource.queue.dequeue();
                     resource.mode = LockMode.SHARED;
-                    resource.holders.add(holder);
+                    resource.holders.set(holder, lock);
                     waitForGraph.delete(holder);
-                    return new Lock(holder, resource);
+                    return lock;
                 } else if (resource.mode == LockMode.SHARED) {
                     // There are shared locks on the resource.
                     resource.queue.dequeue();
-                    resource.holders.add(holder);
+                    resource.holders.set(holder, lock);
                     waitForGraph.delete(holder);
-                    return new Lock(holder, resource);
+                    return lock;
                 }
             }
 
