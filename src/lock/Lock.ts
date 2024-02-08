@@ -6,55 +6,51 @@ const LOCK_RELEASED = "lock_released";
 export class LockedResource {
     public id = uid();
     public queue = new WeakQueue<Ticket>();
-    public slot?: Lock;
+    public refCount = 0;
+    public mode?: LockMode;
 }
 
 /** A held lock on a resource. */
 export class Lock {
-    private mode: LockMode;
-
     /** The shared resource, which includes a slot and a queue. */
     private resource: LockedResource;
 
-    /** Number of times this lock has been locked, always 1 for exclusive. */
-    private refCount = 1;
+    /** Whether this lock is being held or has been released. */
+    private held = true;
 
-    private constructor(resource: LockedResource, mode: LockMode) {
+    private constructor(resource: LockedResource) {
         this.resource = resource;
-        this.mode = mode;
     }
 
     public static exclusive(resource: LockedResource): Lock {
-        const ownLock = new Lock(resource, LockMode.EXCLUSIVE);
-
         // If the slot is free, take it.
-        if (!resource.slot) {
-            resource.slot = ownLock;
-            return ownLock;
+        if (!resource.mode) {
+            resource.mode = LockMode.EXCLUSIVE;
+            resource.refCount++;
+            return new Lock(resource);
         }
 
         // Enter the queue.
         const ownTicket = { mode: LockMode.EXCLUSIVE };
         resource.queue.enqueue(ownTicket);
         while (true) {
-            if (resource.queue.peek() == ownTicket && !resource.slot) {
+            if (resource.queue.peek() == ownTicket && !resource.mode) {
                 // We've reached the front, and there's no lock in the slot.
                 resource.queue.dequeue();
-                resource.slot = ownLock;
-                return ownLock;
+                resource.mode = LockMode.EXCLUSIVE;
+                resource.refCount++;
+                return new Lock(resource);
             }
             os.pullEvent(LOCK_RELEASED);
         }
     }
 
     public static shared(resource: LockedResource): Lock {
-        const ownLock = new Lock(resource, LockMode.SHARED);
-
         // If the slot is free, take it.
-        const held = resource.slot;
-        if (held == undefined) {
-            resource.slot = ownLock;
-            return ownLock;
+        if (!resource.mode) {
+            resource.mode = LockMode.SHARED;
+            resource.refCount++;
+            return new Lock(resource);
         }
 
         // Enter the queue.
@@ -63,17 +59,17 @@ export class Lock {
         while (true) {
             if (resource.queue.peek() == ownTicket) {
                 // We've reached the front.
-                const held2 = resource.slot;
-                if (held2 == undefined) {
-                    // There's no lock in the slot.
+                if (!resource.mode) {
+                    // There are no locks on the resource.
                     resource.queue.dequeue();
-                    resource.slot = ownLock;
-                    return ownLock;
-                } else if (held2.mode == LockMode.SHARED) {
-                    // There's another shared lock in the slot.
+                    resource.mode = LockMode.SHARED;
+                    resource.refCount++;
+                    return new Lock(resource);
+                } else if (resource.mode == LockMode.SHARED) {
+                    // There are shared locks on the resource.
                     resource.queue.dequeue();
-                    held2.refCount++;
-                    return held2;
+                    resource.refCount++;
+                    return new Lock(resource);
                 }
             }
             os.pullEvent(LOCK_RELEASED);
@@ -85,7 +81,7 @@ export class Lock {
      * @returns Whether this lock is currently held and can be interacted with.
      */
     public isHeld(): boolean {
-        return this.resource.slot == this;
+        return this.held;
     }
 
     /**
@@ -95,7 +91,7 @@ export class Lock {
      */
     public isShared(): boolean {
         assert(this.isHeld(), "attempt to interact with a non-held lock");
-        return this.mode == LockMode.SHARED;
+        return this.resource.mode == LockMode.SHARED;
     }
 
     /**
@@ -114,11 +110,11 @@ export class Lock {
             if (
                 front &&
                 front.mode == LockMode.EXCLUSIVE &&
-                this.refCount == 1
+                this.resource.refCount == 1
             ) {
                 // The front is an exclusive intent and we're the sole lock
                 // holder. Upgrading right now is as fair as it can be.
-                this.mode = LockMode.EXCLUSIVE;
+                this.resource.mode = LockMode.EXCLUSIVE;
                 return;
             }
             os.pullEvent(LOCK_RELEASED);
@@ -132,7 +128,7 @@ export class Lock {
     public downgrade() {
         assert(this.isHeld(), "attempt to interact with a non-held lock");
         if (this.isShared()) { return; }
-        this.mode = LockMode.SHARED;
+        this.resource.mode = LockMode.SHARED;
     }
 
     /**
@@ -142,7 +138,8 @@ export class Lock {
      */
     public release() {
         assert(this.isHeld(), "attempt to interact with a non-held lock");
-        if (--this.refCount == 0) { this.resource.slot = undefined; }
+        this.held = false;
+        if (--this.resource.refCount == 0) { this.resource.mode = undefined; }
     }
 }
 
