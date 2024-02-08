@@ -50,7 +50,7 @@ export class Lock {
     public readonly resource: LockedResource;
 
     /** The lock's holder. */
-    private holder: LockHolder;
+    public readonly holder: LockHolder;
 
     /** Whether this lock is being held or has been released. */
     private held = true;

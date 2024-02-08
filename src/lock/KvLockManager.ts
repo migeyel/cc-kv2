@@ -1,6 +1,6 @@
 import { BTreeComponent, KvPair } from "../btree/Node";
-import { TxCollection, TxId } from "../txStore/LogStore";
-import { Lock, LockedResource } from "./Lock";
+import { TxCollection } from "../txStore/LogStore";
+import { Lock, LockHolder, LockedResource } from "./Lock";
 
 /** A SS2PL lock manager. */
 export class KvLockManager {
@@ -23,13 +23,7 @@ export class KvLockManager {
     );
 
     /** The map of locks held per transaction. */
-    private locksPerTx = new LuaMap<TxId, LuaSet<Lock>>();
-
-    /** The map of transactions that hold a lock. */
-    private txsPerLock = setmetatable(
-        new LuaMap<Lock, LuaSet<TxId>>(),
-        { __mode: "k" },
-    );
+    private locksPerTx = new LuaMap<LockHolder, LuaSet<Lock>>();
 
     /** The first fence is the fence that comes before the first entry. */
     private firstFence = new LockedResource();
@@ -55,83 +49,64 @@ export class KvLockManager {
         return newOut;
     }
 
-    private getLocks(txId: TxId): LuaSet<Lock> {
-        const out = this.locksPerTx.get(txId);
+    private getLocks(holder: LockHolder): LuaSet<Lock> {
+        const out = this.locksPerTx.get(holder);
         if (out) { return out; }
         const newOut = new LuaSet<Lock>();
-        this.locksPerTx.set(txId, newOut);
-        return newOut;
-    }
-
-    private getTransactions(lock: Lock): LuaSet<TxId> {
-        const out = this.txsPerLock.get(lock);
-        if (out) { return out; }
-        const newOut = new LuaSet<TxId>();
-        this.txsPerLock.set(lock, newOut);
+        this.locksPerTx.set(holder, newOut);
         return newOut;
     }
 
     /** Acquires an exclusive lock on a resource or upgrades if possible. */
-    private exclusive(resource: LockedResource, txId: TxId): Lock {
-        if (!resource.slot || !this.getTransactions(resource.slot).has(txId)) {
-            const lock = Lock.exclusive(resource);
-            this.getTransactions(lock).add(txId);
-            this.getLocks(txId).add(lock);
+    private exclusive(resource: LockedResource, holder: LockHolder): Lock {
+        if (!resource.mode || !resource.holders.has(holder)) {
+            const lock = Lock.exclusive(holder, resource);
+            this.getLocks(holder).add(lock);
             return lock;
         } else {
-            resource.slot.upgrade();
-            return resource.slot;
+            const lock = resource.holders.get(holder)!;
+            lock.upgrade();
+            return lock;
         }
     }
 
     /** Acquires a shared lock on a resource. */
-    private shared(resource: LockedResource, txId: TxId): Lock {
-        if (!resource.slot || !this.getTransactions(resource.slot).has(txId)) {
-            const lock = Lock.shared(resource);
-            this.getTransactions(lock).add(txId);
-            this.getLocks(txId).add(lock);
+    private shared(resource: LockedResource, holder: LockHolder): Lock {
+        if (!resource.mode || !resource.holders.has(holder)) {
+            const lock = Lock.shared(holder, resource);
+            this.getLocks(holder).add(lock);
             return lock;
         }
-        return resource.slot;
+        return resource.holders.get(holder)!;
     }
 
     /** Releases a lock and unlinks related structures. */
     private release(lock: Lock) {
         lock.release();
-        for (const txId of this.getTransactions(lock)) {
-            this.getLocks(txId).delete(lock);
-        }
-        this.txsPerLock.delete(lock);
+        this.getLocks(lock.holder).delete(lock);
     }
 
     /** Releases all locks on a transaction and unlinks related structures. */
-    public releaseLocks(txId: TxId): void {
-        for (const lock of this.getLocks(txId)) {
-            lock.release();
-            const transactions = this.getTransactions(lock);
-            transactions.delete(txId);
-            if (next(transactions)[0] == undefined) {
-                this.txsPerLock.delete(lock);
-            }
-        }
-        this.locksPerTx.delete(txId);
+    public releaseLocks(holder: LockHolder): void {
+        for (const lock of this.getLocks(holder)) { lock.release(); }
+        this.locksPerTx.delete(holder);
         os.queueEvent("lock_released");
     }
 
     private exclusiveFence(
         cl: TxCollection,
         key: string,
-        txId: TxId,
+        holder: LockHolder,
         prev?: KvPair,
     ) {
         // Locking may change what the previous node is, so we need to keep
         // trying until it settles.
         let oldPrev = prev;
-        let oldLock = this.exclusive(this.getFence(oldPrev?.key), txId);
+        let oldLock = this.exclusive(this.getFence(oldPrev?.key), holder);
         while (true) {
             const [newPrev] = this.btree.search(cl, key);
             if (oldPrev?.key == newPrev?.key) { break; }
-            const newLock = this.exclusive(this.getFence(newPrev?.key), txId);
+            const newLock = this.exclusive(this.getFence(newPrev?.key), holder);
             this.release(oldLock);
             oldLock = newLock;
             oldPrev = newPrev;
@@ -141,17 +116,17 @@ export class KvLockManager {
     private sharedFence(
         cl: TxCollection,
         key: string,
-        txId: TxId,
+        holder: LockHolder,
         prev?: KvPair,
     ) {
         // Locking may change what the previous node is, so we need to keep
         // trying until it settles.
         let oldPrev = prev;
-        let oldLock = this.shared(this.getFence(oldPrev?.key), txId);
+        let oldLock = this.shared(this.getFence(oldPrev?.key), holder);
         while (true) {
             const [newPrev] = this.btree.search(cl, key);
             if (oldPrev?.key == newPrev?.key) { break; }
-            const newLock = this.shared(this.getFence(newPrev?.key), txId);
+            const newLock = this.shared(this.getFence(newPrev?.key), holder);
             this.release(oldLock);
             oldLock = newLock;
             oldPrev = newPrev;
@@ -159,45 +134,45 @@ export class KvLockManager {
     }
 
     /** Acquires locks for setting/inserting a value. */
-    public acquireSet(cl: TxCollection, key: string, txId: TxId): void {
-        this.exclusive(this.getContent(key), txId);
+    public acquireSet(cl: TxCollection, key: string, holder: LockHolder): void {
+        this.exclusive(this.getContent(key), holder);
 
         const [prev, next] = this.btree.search(cl, key);
         if (!next || next.key != key) {
             // Key doesn't exist, insertion requires acquiring fence locks.
-            this.exclusiveFence(cl, key, txId, prev);
+            this.exclusiveFence(cl, key, holder, prev);
         }
     }
 
     /** Acquires locks for deleting a value. */
-    public acquireDelete(cl: TxCollection, key: string, txId: TxId): void {
-        this.exclusive(this.getContent(key), txId);
+    public acquireDelete(cl: TxCollection, key: string, holder: LockHolder): void {
+        this.exclusive(this.getContent(key), holder);
 
         const [prev, next] = this.btree.search(cl, key);
         if (next && next.key == key) {
             // Key exists, deletion requires acquiring fence locks.
-            this.exclusiveFence(cl, key, txId, prev);
+            this.exclusiveFence(cl, key, holder, prev);
         }
     }
 
     /** Acquires locks for getting a value. */
-    public acquireGet(key: string, txId: TxId): void {
-        this.shared(this.getContent(key), txId);
+    public acquireGet(key: string, holder: LockHolder): void {
+        this.shared(this.getContent(key), holder);
     }
 
     /** Acquires locks for getting the next key and value. */
-    public acquireNext(cl: TxCollection, key: string, txId: TxId): void {
+    public acquireNext(cl: TxCollection, key: string, holder: LockHolder): void {
         const [prev, next] = this.btree.search(cl, key);
         if (!next || next.key != key) {
             // Key doesn't exist, we need to acquire fence locks.
-            this.sharedFence(cl, key, txId, prev);
+            this.sharedFence(cl, key, holder, prev);
 
             // Now we can carry on the search and lock the content.
             const [_, cNext] = this.btree.search(cl, key);
-            if (cNext) { this.shared(this.getContent(cNext.key), txId); }
+            if (cNext) { this.shared(this.getContent(cNext.key), holder); }
         } else {
             // Key exists so lock the content.
-            this.shared(this.getContent(key), txId);
+            this.shared(this.getContent(key), holder);
         }
     }
 }
