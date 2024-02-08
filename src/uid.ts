@@ -13,7 +13,6 @@ let state = sha256(table.concat([
     tostring({}),
     tostring({}),
     fs.getFreeSpace("/"),
-    string.dump(() => {}),
 ], "|"));
 
 // Mix tick timings in.
