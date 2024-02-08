@@ -6,8 +6,12 @@ const LOCK_RELEASED = "lock_released";
 export class LockedResource {
     public id = uid();
     public queue = new WeakQueue<Ticket>();
-    public refCount = 0;
+    public holders = new LuaSet<LockHolder>();
     public mode?: LockMode;
+}
+
+class LockHolder {
+
 }
 
 /** A held lock on a resource. */
@@ -15,19 +19,23 @@ export class Lock {
     /** The shared resource, which includes a slot and a queue. */
     private resource: LockedResource;
 
+    /** The lock's holder. */
+    private holder: LockHolder;
+
     /** Whether this lock is being held or has been released. */
     private held = true;
 
-    private constructor(resource: LockedResource) {
+    private constructor(holder: LockHolder, resource: LockedResource) {
+        this.holder = holder;
         this.resource = resource;
     }
 
-    public static exclusive(resource: LockedResource): Lock {
+    public static exclusive(holder: LockHolder, resource: LockedResource): Lock {
         // If the slot is free, take it.
         if (!resource.mode) {
             resource.mode = LockMode.EXCLUSIVE;
-            resource.refCount++;
-            return new Lock(resource);
+            resource.holders.add(holder);
+            return new Lock(holder, resource);
         }
 
         // Enter the queue.
@@ -38,19 +46,19 @@ export class Lock {
                 // We've reached the front, and there's no lock in the slot.
                 resource.queue.dequeue();
                 resource.mode = LockMode.EXCLUSIVE;
-                resource.refCount++;
-                return new Lock(resource);
+                resource.holders.add(holder);
+                return new Lock(holder, resource);
             }
             os.pullEvent(LOCK_RELEASED);
         }
     }
 
-    public static shared(resource: LockedResource): Lock {
+    public static shared(holder: LockHolder, resource: LockedResource): Lock {
         // If the slot is free, take it.
         if (!resource.mode) {
             resource.mode = LockMode.SHARED;
-            resource.refCount++;
-            return new Lock(resource);
+            resource.holders.add(holder);
+            return new Lock(holder, resource);
         }
 
         // Enter the queue.
@@ -63,13 +71,13 @@ export class Lock {
                     // There are no locks on the resource.
                     resource.queue.dequeue();
                     resource.mode = LockMode.SHARED;
-                    resource.refCount++;
-                    return new Lock(resource);
+                    resource.holders.add(holder);
+                    return new Lock(holder, resource);
                 } else if (resource.mode == LockMode.SHARED) {
                     // There are shared locks on the resource.
                     resource.queue.dequeue();
-                    resource.refCount++;
-                    return new Lock(resource);
+                    resource.holders.add(holder);
+                    return new Lock(holder, resource);
                 }
             }
             os.pullEvent(LOCK_RELEASED);
@@ -110,7 +118,8 @@ export class Lock {
             if (
                 front &&
                 front.mode == LockMode.EXCLUSIVE &&
-                this.resource.refCount == 1
+                next(this.resource.holders)[0] == this.holder &&
+                next(this.resource.holders, this.holder)[0] == undefined
             ) {
                 // The front is an exclusive intent and we're the sole lock
                 // holder. Upgrading right now is as fair as it can be.
@@ -139,7 +148,8 @@ export class Lock {
     public release() {
         assert(this.isHeld(), "attempt to interact with a non-held lock");
         this.held = false;
-        if (--this.resource.refCount == 0) { this.resource.mode = undefined; }
+        this.resource.holders.delete(this.holder);
+        if (this.resource.holders.isEmpty()) { this.resource.mode = undefined; }
     }
 }
 
