@@ -254,6 +254,17 @@ export class BTreeComponent {
     }
 
     /**
+     * Given `l`, `r` with `l <= r`, returns the shortest string `s` such that
+     * `l < s <= r`.
+     */
+    private computeSeparator(l: string, r: string): string {
+        assert(l <= r);
+        let i = 0;
+        do { i++; } while (string.byte(l, i) == string.byte(r, i));
+        return string.sub(r, 1, i);
+    }
+
+    /**
      * Searches a leaf for the keys flanking a target.
      * @param cl - The collection to operate.
      * @param key - The target key.
@@ -457,13 +468,16 @@ export class BTreeComponent {
         newLeaf.doEvent(new SetLeafLinksEvent(leaf.pageNum, oldNextLeafNum));
         leaf.doEvent(new SetLeafLinksEvent(leaf.obj.prev, newLeaf.pageNum));
 
-        // Insert the element into one of the two nodes.
-        const splitKey = this.vrc.read(cl, newLeaf.obj.keys[0]);
+        // Compute the split key to be passed into the parent.
+        const lKey = this.vrc.read(cl, leaf.obj.keys[leaf.obj.keys.length - 1]);
+        const rKey = this.vrc.read(cl, newLeaf.obj.keys[0]);
+        const splitKey = this.computeSeparator(lKey, rKey);
         const split = {
             nextNode: newLeaf.pageNum,
             splitKey: this.vrc.allocate(cl, splitKey),
         };
 
+        // Insert the element into one of the two nodes.
         if (key < splitKey) {
             // Left
             return {
