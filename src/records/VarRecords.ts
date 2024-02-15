@@ -2,12 +2,16 @@ import { Namespace } from "../store/IPageStore";
 import { IEvent, IObj, TxCollection } from "../txStore/LogStore";
 import { RECORD_ID_BYTES, RecordId, RecordsComponent } from "./Records";
 
+const VID_LENGTH_BYTES = 2;
+const VID_LEN_FMT = "<I" + VID_LENGTH_BYTES;
+const MAX_VID_PREFIX_LENGTH = 256 ** VID_LENGTH_BYTES / 2 - 1;
+
 /**
  * An id referring to a var record.
  *
  * To avoid indirections, the VID can contain a prefix to the record directly in
  * its body. The length of the prefix is defined by the user code, but can't be
- * longer than 127 bytes.
+ * longer than MAX_VID_PREFIX_LENGTH bytes.
  */
 export class VarRecordId {
     /** The direct prefix. */
@@ -17,18 +21,18 @@ export class VarRecordId {
     public readonly rid?: RecordId;
 
     public constructor(str: string, rid?: RecordId) {
-        assert(str.length <= 127);
+        assert(str.length <= MAX_VID_PREFIX_LENGTH);
         this.str = str;
         this.rid = rid;
     }
 
     public serialize(): string {
         if (this.rid) {
-            return string.char(2 * this.str.length + 1) +
+            return string.pack(VID_LEN_FMT, 2 * this.str.length + 1) +
                 this.str +
                 this.rid.serialize();
         } else {
-            return string.char(2 * this.str.length) + this.str;
+            return string.pack(VID_LEN_FMT, 2 * this.str.length) + this.str;
         }
     }
 
@@ -36,11 +40,13 @@ export class VarRecordId {
         str: string,
         pos = 1,
     ): LuaMultiReturn<[VarRecordId, number]> {
-        const lenf = string.byte(str, pos);
+        const [lenf] = string.unpack(VID_LEN_FMT, str, pos);
         const flag = lenf % 2;
         const len = (lenf - flag) / 2;
-        const dstr = string.sub(str, pos + 1, pos + len);
-        const pos2 = pos + len + 1;
+        const dstrStart = pos + VID_LENGTH_BYTES;
+        const dstrEnd = dstrStart + len - 1;
+        const dstr = string.sub(str, dstrStart, dstrEnd);
+        const pos2 = dstrEnd + 1;
         if (flag == 0) {
             return $multi(new VarRecordId(dstr), pos2);
         } else {
@@ -51,9 +57,9 @@ export class VarRecordId {
 
     public length(): number {
         if (this.rid) {
-            return 1 + this.str.length + RECORD_ID_BYTES;
+            return VID_LENGTH_BYTES + this.str.length + RECORD_ID_BYTES;
         } else {
-            return 1 + this.str.length;
+            return VID_LENGTH_BYTES + this.str.length;
         }
     }
 }
@@ -63,7 +69,7 @@ export class VarRecordId {
  *
  * Records are split up into one or more bounded records, each holding a
  * reference to the next one, and are addressed by a variable record ID, which
- * may also contain a small prefix of the record for better performance.
+ * may also contain a prefix of the record for better performance.
  */
 export class VarRecordsComponent {
     /** The bounded-size records component that stores var record slices. */
@@ -76,11 +82,11 @@ export class VarRecordsComponent {
         recordsComponent: RecordsComponent,
         maxVidLen: number,
     ) {
-        // Must be able to fit the length byte and the body record id.
-        assert(maxVidLen >= 1 + RECORD_ID_BYTES);
+        // Must be able to fit the length bytes and the body record id.
+        assert(maxVidLen >= VID_LENGTH_BYTES + RECORD_ID_BYTES);
 
-        // Length must be able to fit in 7 bits.
-        maxVidLen = math.min(maxVidLen, 127);
+        // Length must be bounded by the global max length.
+        maxVidLen = math.min(maxVidLen, MAX_VID_PREFIX_LENGTH);
 
         this.records = recordsComponent;
         this.maxVidLen = maxVidLen;
@@ -96,19 +102,19 @@ export class VarRecordsComponent {
 
     /** Returns the byte size taken by a VID pointing to a record. */
     public getVidLength(record: string): number {
-        return math.min(1 + record.length, this.maxVidLen);
+        return math.min(VID_LENGTH_BYTES + record.length, this.maxVidLen);
     }
 
     /** Allocates a record. */
     public allocate(collection: TxCollection, record: string): VarRecordId {
-        const maxDirectLen = this.maxVidLen - 1;
+        const maxDirectLen = this.maxVidLen - VID_LENGTH_BYTES;
         if (record.length <= maxDirectLen) {
             // Put everything directly into the VID.
             return new VarRecordId(record);
         }
 
         // Split the start to put into the VID.
-        const maxIndirectStrLen = this.maxVidLen - 1 - RECORD_ID_BYTES;
+        const maxIndirectStrLen = maxDirectLen - RECORD_ID_BYTES;
         const head = string.sub(record, 1, maxIndirectStrLen);
         record = string.sub(record, maxIndirectStrLen + 1);
 
