@@ -60,7 +60,7 @@ export class PageAllocatorComponent {
         let numPages = this.getNumPages(cl);
         if (hint && hint != numPages - 1) { return; }
         const ns = cl.getStoreCast<IObj<IEvent>, IEvent>(this.pagesNamespace);
-        while (true) {
+        while (numPages > 0) {
             const page = ns.getPage(numPages - 1 as PageNum);
             if (page.obj.isEmpty()) { numPages--; } else { break; }
         }
