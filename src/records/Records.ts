@@ -137,6 +137,7 @@ export class RecordsComponent {
         const headerLink = header.obj.links[sizeClass];
         nextPage.doEvent(new SetLinksEvent(sizeClass, NO_LINK, headerLink));
         header.doEvent(new HeaderEvent(sizeClass, nextPage.pageNum));
+        assert(sizeClass == nextPage.obj.sizeClass);
 
         return new RecordId(nextPage.pageNum, entryId);
     }
@@ -185,10 +186,22 @@ export class RecordsComponent {
             page.doEvent(new SetLinksEvent(0 as SizeClass, NO_LINK, NO_LINK));
             this.allocatedPages.freeUnusedPages(collection, page.pageNum);
         } else if (newSizeClass != sizeClass) {
-            // Push it into the start of the new class list.
-            const headerLink = header.obj.links[newSizeClass];
-            page.doEvent(new SetLinksEvent(newSizeClass, NO_LINK, headerLink));
+            // Link the next page to us.
+            const nextLink = header.obj.links[newSizeClass];
+            if (nextLink != NO_LINK) {
+                const nextPage = pages.getPage(nextLink);
+                nextPage.doEvent(new SetLinksEvent(
+                    nextPage.obj.sizeClass,
+                    page.pageNum,
+                    nextPage.obj.next,
+                ));
+            }
+
+            // Link the header to us.
             header.doEvent(new HeaderEvent(newSizeClass, page.pageNum));
+
+            // Link us to the next page and header.
+            page.doEvent(new SetLinksEvent(newSizeClass, NO_LINK, nextLink));
         }
     }
 
@@ -200,6 +213,7 @@ export class RecordsComponent {
         const page = collection
             .getStoreCast<RecordPageObj, EntryEvent>(this.pageNamespace)
             .getPage(pageNum);
+        assert(page.obj.usedSpace + ENTRY_OVERHEAD + str.length <= page.pageSize);
         const entryId = page.obj.getUnusedEntryId();
         page.doEvent(new CreateEntryEvent(entryId, str));
         this.reassignSizeClass(collection, page);
