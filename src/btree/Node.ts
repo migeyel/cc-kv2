@@ -763,12 +763,16 @@ export class BTreeComponent {
             lSibling.doEvent(new DelLeafEntryEvent(
                 lSibling.obj.keys.length - 1,
             ));
+            const splitKey = this.vrc.allocate(cl, this.computeSeparator(
+                this.vrc.read(cl, lSibling.obj.keys[lSibling.obj.keys.length - 1]),
+                this.vrc.read(cl, leaf.obj.keys[0]),
+            ));
             return {
                 oldVal,
                 operation: {
                     ty: DeletionResultTy.REASSIGN,
                     with: SiblingPos.LEFT,
-                    newSplitKey: leaf.obj.keys[0],
+                    newSplitKey: splitKey,
                 },
             };
         }
@@ -785,12 +789,16 @@ export class BTreeComponent {
                 rSibling.obj.keys[0],
             ));
             rSibling.doEvent(new DelLeafEntryEvent(0));
+            const splitKey = this.vrc.allocate(cl, this.computeSeparator(
+                this.vrc.read(cl, leaf.obj.keys[leaf.obj.keys.length - 1]),
+                this.vrc.read(cl, rSibling.obj.keys[0]),
+            ));
             return {
                 oldVal,
                 operation: {
                     ty: DeletionResultTy.REASSIGN,
                     with: SiblingPos.RIGHT,
-                    newSplitKey: rSibling.obj.keys[0],
+                    newSplitKey: splitKey,
                 },
             };
         }
