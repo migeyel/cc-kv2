@@ -740,6 +740,7 @@ export class BTreeComponent {
 
         // Delete the entry.
         const oldVal = this.vrc.read(cl, leaf.obj.vals[iLow]);
+        this.vrc.free(cl, leaf.obj.keys[iLow]);
         this.vrc.free(cl, leaf.obj.vals[iLow]);
         leaf.doEvent(new DelLeafEntryEvent(iLow));
 
@@ -876,12 +877,18 @@ export class BTreeComponent {
         // Delete the key and child pointer that were merged.
         if (op.with == SiblingPos.LEFT) {
             assert(siblings.left);
+            if (parent.obj.height == 1) {
+                this.vrc.free(cl, parent.obj.keys[childIndex - 1]);
+            }
             parent.doEvent(new DelBranchKeyEvent(
                 childIndex - 1,
                 WithChild.RIGHT,
             ));
         } else {
             assert(siblings.right);
+            if (parent.obj.height == 1) {
+                this.vrc.free(cl, parent.obj.keys[childIndex]);
+            }
             parent.doEvent(new DelBranchKeyEvent(childIndex, WithChild.RIGHT));
         }
 
@@ -989,6 +996,9 @@ export class BTreeComponent {
                 if (result.operation.with == SiblingPos.LEFT) {
                     // Reassign the key splitting the child and left sibling.
                     assert(siblings.left);
+                    if (parent.obj.height == 1) {
+                        this.vrc.free(cl, parent.obj.keys[iLow]);
+                    }
                     parent.doEvent(new SetBranchKeyEvent(
                         iLow,
                         result.operation.newSplitKey,
@@ -996,6 +1006,9 @@ export class BTreeComponent {
                 } else {
                     // Reassign the key splitting the child and right sibling.
                     assert(siblings.right);
+                    if (parent.obj.height == 1) {
+                        this.vrc.free(cl, parent.obj.keys[iLow + 1]);
+                    }
                     parent.doEvent(new SetBranchKeyEvent(
                         iLow + 1,
                         result.operation.newSplitKey,
