@@ -16,14 +16,14 @@ const MOD_SUBDIR = "_";
 const DEL_SUFFIX = "_DEL";
 
 function matchDel(modfile: string): string | undefined {
-    return string.match("(.+)_DEL$", modfile)[0];
+    return string.match(modfile, "(.+)_DEL$")[0];
 }
 
 /** The modification suffix for signalling updates. */
 const NEW_SUFFIX = "_NEW";
 
 function matchNew(modfile: string): string | undefined {
-    return string.match("(.+)_NEW$", modfile)[0];
+    return string.match(modfile, "(.+)_NEW$")[0];
 }
 
 /**
