@@ -464,6 +464,7 @@ export class TxCollection {
             tt,
         }));
 
+        this.state.log.flushToPoint(this.lastCpLsn);
         this.state.log.trimToPoint(trimLsn);
     }
 
