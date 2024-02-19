@@ -515,6 +515,7 @@ export class TxCollection {
 
         for (const t of lastCp.tt) {
             const info = this.state.getTtEntry(t.id);
+            info.firstLsn = t.firstLsn;
             info.lastLsn = t.lastLsn;
             info.undoNxtLsn = t.undoNxtLsn;
         }
@@ -544,7 +545,7 @@ export class TxCollection {
                     nextTtEntry = ttEntry;
                 }
             }
-            if (nextTtEntry) {
+            if (nextTtEntry && nextLsn != 0) {
                 const recordStr = this.state.log.getRecord(nextLsn)[0];
                 const record = LogRecord.deserialize(recordStr);
                 if (record.ty == RecordType.ACT) {
