@@ -94,8 +94,14 @@ export class TxPage<T extends IObj<E>, E extends IEvent> implements ICacheable {
     public config: IConfig;
     public pageSize: PageSize;
 
-    /** The LSN of the last act that changed this page. Nil when unknown. */
-    public pageLsn?: number;
+    /**
+     * The LSN of the last act that changed this page.
+     *
+     * The value is set to 0 if the page was reloaded from disk after being deleted.
+     * Because event application is idempotent whenever starting from an empty page, the
+     * LSN doesn't need to be recorded.
+     */
+    public pageLsn = 0;
 
     /** The deserialized page object. */
     public obj: T;
@@ -166,8 +172,7 @@ export class TxPage<T extends IObj<E>, E extends IEvent> implements ICacheable {
         if (!dptInfo) { return; }
 
         // WAL policy
-        const pageLsn = assert(this.pageLsn);
-        this.state.log.flushToPoint(pageLsn);
+        this.state.log.flushToPoint(this.pageLsn);
 
         if (this.obj.isEmpty()) {
             if (this.pageExists) {
@@ -177,7 +182,7 @@ export class TxPage<T extends IObj<E>, E extends IEvent> implements ICacheable {
                 // Nothing to do.
             }
         } else {
-            const lsnStr = string.pack("<" + LSN_FMT, pageLsn);
+            const lsnStr = string.pack("<" + LSN_FMT, this.pageLsn);
             if (this.pageExists) {
                 this.page.write(lsnStr + this.obj.serialize());
             } else {
@@ -192,7 +197,8 @@ export class TxPage<T extends IObj<E>, E extends IEvent> implements ICacheable {
 
     /** Applies end-of-act state changes to the page. */
     public closeAct(actLsn: number) {
-        this.state.setDptEntry(this.namespace, this.pageNum, actLsn);
+        const dptEntry = this.state.getDptEntry(this.namespace, this.pageNum);
+        if (!dptEntry) { this.state.setDptEntry(this.namespace, this.pageNum, actLsn); }
         this.pageLsn = actLsn;
         this.unpin();
     }
@@ -377,13 +383,7 @@ export class TxCollection {
         for (const event of record.events) {
             const page = this.getStoreCast(event.namespace)
                 .getPage(event.pageNum);
-            if (page.pageLsn) {
                 if (page.pageLsn < actLsn) { page.redoEvent(event); }
-            } else if (this.state.actState.pinnedPages.has(page)) {
-                page.redoEvent(event);
-            } else if (event.updateType == PageUpdateType.CREATED) {
-                page.redoEvent(event);
-            }
         }
 
         this.closeAct(record.txId, actLsn, actLsn);
