@@ -18,12 +18,26 @@ export enum RecordType {
 
 /** Used for tracking when a page was deleted and recreated. */
 export enum PageUpdateType {
-    /** The page in the event was created through this event. */
-    CREATED,
+    /** The event "changed" an empty page into another empty page. */
+    EMPTY = 0b00,
 
-    /** The page in the event wasn't created through this event. */
-    OTHER,
+    /** The page in the event was created through this event. */
+    CREATED = 0b01,
+
+    /** The page in the event was deleted through this event. */
+    DELETED = 0b10,
+
+    /** The page was changed but wasn't empty through the event. */
+    ALTERED = 0b11,
 }
+
+/** Whether an update type is exclusive to an empty object. */
+export const updatesOnEmpty = {
+    [PageUpdateType.CREATED]: true,
+    [PageUpdateType.ALTERED]: false,
+    [PageUpdateType.DELETED]: false,
+    [PageUpdateType.EMPTY]: true,
+};
 
 /** The maximum value for a transaction ID. */
 export const MAX_TX_ID = 2 ** 24 - 1;

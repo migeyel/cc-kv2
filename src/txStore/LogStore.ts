@@ -15,6 +15,7 @@ import {
     PAGE_FMT,
     PageUpdateType,
     RecordType,
+    updatesOnEmpty,
 } from "./LogRecord/types";
 import * as LogRecord from "./LogRecord/LogRecord";
 import * as EventSubRecord from "./LogRecord/EventSubRecord";
@@ -215,10 +216,18 @@ export class TxPage<T extends IObj<E>, E extends IEvent> implements ICacheable {
         this.obj.apply(event);
         const isEmpty = this.obj.isEmpty();
         let updateType: PageUpdateType;
-        if (!isEmpty && wasEmpty) {
-            updateType = PageUpdateType.CREATED;
+        if (isEmpty) {
+            if (wasEmpty) {
+                updateType = PageUpdateType.EMPTY;
+            } else {
+                updateType = PageUpdateType.DELETED;
+            }
         } else {
-            updateType = PageUpdateType.OTHER;
+            if (wasEmpty) {
+                updateType = PageUpdateType.CREATED;
+            } else {
+                updateType = PageUpdateType.ALTERED;
+            }
         }
 
         assert(this.state.actState).pushEvent({
@@ -231,10 +240,7 @@ export class TxPage<T extends IObj<E>, E extends IEvent> implements ICacheable {
 
     /** Redoes an event from a record. This also pins the page. */
     public redoEvent(record: EventSubRecord.Record): void {
-        if (this.obj.isEmpty() && record.updateType != PageUpdateType.CREATED) {
-            // An act newer than the current one has deleted the page so we
-            // can't apply this one.
-        } else {
+        if (this.obj.isEmpty() == updatesOnEmpty[record.updateType]) {
             this.pin();
             this.obj.apply(this.config.deserializeEv(
                 this.namespace,
@@ -383,7 +389,7 @@ export class TxCollection {
         for (const event of record.events) {
             const page = this.getStoreCast(event.namespace)
                 .getPage(event.pageNum);
-                if (page.pageLsn < actLsn) { page.redoEvent(event); }
+            if (page.pageLsn < actLsn) { page.redoEvent(event); }
         }
 
         this.closeAct(record.txId, actLsn, actLsn);
