@@ -37,6 +37,7 @@ import {
     deserializeLeafObj,
 } from "./Leaf";
 import { PAGE_LINK_BYTES } from "../records/SizeClass";
+import { RecordsComponent } from "../records/Records";
 
 type NodeObj = BranchObj | LeafObj;
 type NodeEvent = BranchEvent | LeafEvent;
@@ -151,12 +152,11 @@ export class BTreeComponent {
 
     public constructor(
         collection: IStoreCollection<IPage, IPageStore<IPage>>,
-        vrc: VarRecordsComponent,
+        rc: RecordsComponent,
         rootConfig: ConfigEntryComponent,
         leafAllocator: PageAllocatorComponent,
         branchAllocator: PageAllocatorComponent,
     ) {
-        this.vrc = vrc;
         this.pageSize = collection.pageSize;
         this.leafNamespace = leafAllocator.pagesNamespace;
         this.allocatedLeaves = leafAllocator;
@@ -164,12 +164,16 @@ export class BTreeComponent {
         this.allocatedBranches = branchAllocator;
         this.rootPageConfig = rootConfig;
 
+        const leafMaxVidLen = math.floor((collection.pageSize - LEAF_OVERHEAD) / 8);
+        const branchMaxVidLen = math.floor((collection.pageSize - BRANCH_OVERHEAD) / 4);
+        const maxVidLen = math.min(leafMaxVidLen, branchMaxVidLen);
+        this.vrc = new VarRecordsComponent(rc, maxVidLen);
+
         // The page size and max VID head length must be constrained to let at
-        // least three keys fit on a single leaf, including overheads.
-        // TODO: Maybe it's more? I'm too tired to work it out.
-        const leafEntrySize = LeafObj.getMaxEntrySize(vrc);
-        const branchEntrySize = BranchObj.getMaxEntrySize(vrc);
-        const minLeafBytes = LEAF_OVERHEAD + 3 * leafEntrySize;
+        // least four keys fit on a single leaf, including overheads.
+        const leafEntrySize = LeafObj.getMaxEntrySize(this.vrc);
+        const branchEntrySize = BranchObj.getMaxEntrySize(this.vrc);
+        const minLeafBytes = LEAF_OVERHEAD + 4 * leafEntrySize;
         assert(collection.pageSize >= minLeafBytes);
         assert(collection.pageSize <= MAX_LEAF_PAGE_SIZE);
 

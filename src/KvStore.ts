@@ -4,9 +4,14 @@ import { PageAllocatorComponent } from "./PageAllocatorComponent";
 import { RecordLog } from "./RecordLog";
 import { BTreeComponent } from "./btree/Node";
 import { RecordsComponent } from "./records/Records";
-import { VarRecordsComponent } from "./records/VarRecords";
 import { DirStoreCollection } from "./store/DirStore";
-import { Namespace, PageSize } from "./store/IPageStore";
+import {
+    IPage,
+    IPageStore,
+    IStoreCollection,
+    Namespace,
+    PageSize,
+} from "./store/IPageStore";
 import {
     TxId,
     TxCollection,
@@ -32,35 +37,28 @@ enum ConfigKeys {
     BTREE_ROOT,
 }
 
-export class KvStore {
+export class InnerKvStore {
     private cl: TxCollection;
     private config: SetEntryConfig;
     private kvlm: KvLockManager;
     private log: RecordLog;
-    private lock: DirLock;
 
     private transactions = new LuaTable<TxId, Transaction>();
 
-    public constructor(dir: string) {
-        this.lock = assert(DirLock.tryAcquire(dir), "database is locked")[0];
-        const dataDir = fs.combine(dir, "data");
-        const coll = new DirStoreCollection(dataDir, 4096 as PageSize);
+    public constructor(coll: IStoreCollection<IPage, IPageStore<IPage>>) {
         this.log = new RecordLog(coll.getStore(Namespaces.LOG as Namespace));
         const btree = new BTreeComponent(
             coll,
-            new VarRecordsComponent(
-                new RecordsComponent(
-                    coll,
-                    new PageAllocatorComponent(
-                        new ConfigEntryComponent(
+            new RecordsComponent(
+                coll,
+                new PageAllocatorComponent(
+                    new ConfigEntryComponent(
                             Namespaces.CONFIG as Namespace,
                             ConfigKeys.RECORDS_ALLOCATOR_NUM_PAGES,
-                        ),
-                        Namespaces.PAGES as Namespace,
                     ),
-                    Namespaces.HEADERS as Namespace,
+                    Namespaces.PAGES as Namespace,
                 ),
-                20,
+                Namespaces.HEADERS as Namespace,
             ),
             new ConfigEntryComponent(
                 Namespaces.CONFIG as Namespace,
@@ -92,7 +90,6 @@ export class KvStore {
     public close() {
         for (const [_, v] of this.transactions) { v.rollback(); }
         this.log.close();
-        this.lock.release();
     }
 
     /** Begins a new transaction. */
@@ -111,5 +108,26 @@ export class KvStore {
 
         this.transactions.set(txId, out);
         return out;
+    }
+}
+
+export class KvStore {
+    private lock: DirLock;
+    private inner: InnerKvStore;
+
+    public constructor(dir: string) {
+        this.lock = assert(DirLock.tryAcquire(dir), "database is locked")[0];
+        const dataDir = fs.combine(dir, "data");
+        const coll = new DirStoreCollection(dataDir, 4096 as PageSize);
+        this.inner = new InnerKvStore(coll);
+    }
+
+    public close(): void {
+        this.inner.close();
+        this.lock.release();
+    }
+
+    public begin(): Transaction {
+        return this.inner.begin();
     }
 }
