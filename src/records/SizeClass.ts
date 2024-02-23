@@ -127,5 +127,13 @@ export function getClassThatFits(
         minClass--;
     }
 
+    // Check if we require an empty page.
+    if (
+        minClass == 0 &&
+        getMaxUsedSpace(pageSize, 0 as SizeClass) > maxUsedSpace
+    ) {
+        return;
+    }
+
     return minClass as SizeClass;
 }
