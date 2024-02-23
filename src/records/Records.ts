@@ -122,24 +122,38 @@ export class RecordsComponent {
             .getPage(0 as PageNum);
 
         // Get a new page.
-        const nextPage = this.allocatedPages
+        const page = this.allocatedPages
             .allocPageCast<RecordPageObj, EntryEvent>(collection);
 
         // Put the record in.
-        const entryId = nextPage.obj.getUnusedEntryId();
-        nextPage.doEvent(new CreateEntryEvent(entryId, str));
+        const entryId = page.obj.getUnusedEntryId();
+        page.doEvent(new CreateEntryEvent(entryId, str));
 
         // Get the page's size class.
-        const usedSpace = nextPage.obj.usedSpace;
+        const usedSpace = page.obj.usedSpace;
         const sizeClass = getSizeClass(this.capacity, usedSpace);
 
-        // Push it into the start of the linked list.
-        const headerLink = header.obj.links[sizeClass];
-        nextPage.doEvent(new SetLinksEvent(sizeClass, NO_LINK, headerLink));
-        header.doEvent(new HeaderEvent(sizeClass, nextPage.pageNum));
-        assert(sizeClass == nextPage.obj.sizeClass);
+        // Link the next page to us.
+        const nextLink = header.obj.links[sizeClass];
+        if (nextLink != NO_LINK) {
+            const nextPage = collection
+                .getStoreCast<RecordPageObj, EntryEvent>(this.pageNamespace)
+                .getPage(nextLink);
+            assert(sizeClass == nextPage.obj.sizeClass);
+            nextPage.doEvent(new SetLinksEvent(
+                nextPage.obj.sizeClass,
+                page.pageNum,
+                nextPage.obj.next,
+            ));
+        }
 
-        return new RecordId(nextPage.pageNum, entryId);
+        // Link the header to us.
+        header.doEvent(new HeaderEvent(sizeClass, page.pageNum));
+
+        // Link us to the next page and header.
+        page.doEvent(new SetLinksEvent(sizeClass, NO_LINK, nextLink));
+
+        return new RecordId(page.pageNum, entryId);
     }
 
     /** Reassigns a page's size class if needed. */
@@ -163,6 +177,7 @@ export class RecordsComponent {
                 header.doEvent(new HeaderEvent(sizeClass, page.obj.next));
             } else {
                 const prevPage = pages.getPage(page.obj.prev);
+                assert(sizeClass == prevPage.obj.sizeClass);
                 prevPage.doEvent(new SetLinksEvent(
                     prevPage.obj.sizeClass,
                     prevPage.obj.prev,
@@ -173,6 +188,7 @@ export class RecordsComponent {
             // Unlink from the next page.
             if (page.obj.next != NO_LINK) {
                 const nextPage = pages.getPage(page.obj.next);
+                assert(sizeClass == nextPage.obj.sizeClass);
                 nextPage.doEvent(new SetLinksEvent(
                     nextPage.obj.sizeClass,
                     page.obj.prev,
@@ -190,6 +206,7 @@ export class RecordsComponent {
             const nextLink = header.obj.links[newSizeClass];
             if (nextLink != NO_LINK) {
                 const nextPage = pages.getPage(nextLink);
+                assert(newSizeClass == nextPage.obj.sizeClass);
                 nextPage.doEvent(new SetLinksEvent(
                     nextPage.obj.sizeClass,
                     page.pageNum,
