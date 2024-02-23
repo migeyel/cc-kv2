@@ -100,40 +100,26 @@ export function getClassThatFits(
     const scaleFactor = MAX_SIZE_CLASS / pageSize;
 
     // Use arithmetic to approximate the result.
-    let minClass = maxUsedSpace * scaleFactor - (1 + CLASS_OVERLAP) / 2;
-    minClass = math.min(MAX_PAGE_NUM, math.max(0, math.floor(minClass)));
+    let maxClass = maxUsedSpace * scaleFactor - (1 + CLASS_OVERLAP) / 2;
+    maxClass = math.min(MAX_SIZE_CLASS, math.max(0, math.floor(maxClass)));
 
     // Adjust upwards.
     while (
-        minClass < MAX_PAGE_NUM &&
-        getMaxUsedSpace(pageSize, minClass + 1 as SizeClass) <= maxUsedSpace
+        maxClass < MAX_SIZE_CLASS &&
+        getMaxUsedSpace(pageSize, maxClass + 1 as SizeClass) <= maxUsedSpace
     ) {
-        minClass++;
-    }
-
-    // Check if we've reached the page limit.
-    if (
-        minClass == MAX_PAGE_NUM &&
-        getMaxUsedSpace(pageSize, minClass as SizeClass) <= maxUsedSpace
-    ) {
-        return;
+        maxClass++;
     }
 
     // Adjust downwards.
     while (
-        minClass > 0 &&
-        getMaxUsedSpace(pageSize, minClass - 1 as SizeClass) > maxUsedSpace
+        maxClass >= 0 &&
+        getMaxUsedSpace(pageSize, maxClass as SizeClass) > maxUsedSpace
     ) {
-        minClass--;
+        maxClass--;
     }
 
-    // Check if we require an empty page.
-    if (
-        minClass == 0 &&
-        getMaxUsedSpace(pageSize, 0 as SizeClass) > maxUsedSpace
-    ) {
-        return;
+    if (maxClass >= 0) {
+        return maxClass as SizeClass;
     }
-
-    return minClass as SizeClass;
 }
