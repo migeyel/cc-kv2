@@ -549,7 +549,7 @@ export class BTreeComponent {
         // Initialize it with the child on the right of the split key.
         newBranch.doEvent(new InitBranchEvent(
             branch.obj.height,
-            branch.obj.children[splitIdx],
+            branch.obj.children[splitIdx + 1],
         ));
 
         // Move in entries starting with the next from the split key.
