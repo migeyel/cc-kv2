@@ -193,10 +193,12 @@ export class VarRecordsComponent {
         for (const slice2 of this.iter(collection, vid)) {
             const slice1 = string.sub(str, 1, slice2.length);
             str = string.sub(str, slice2.length + 1);
-            if (slice1 < slice2) {
-                return -1;
-            } else if (slice1 > slice2) {
-                return 1;
+            if (slice1 != slice2) {
+                if (slice1 < slice2) {
+                    return -1;
+                } else {
+                    return 1;
+                }
             }
         }
 
