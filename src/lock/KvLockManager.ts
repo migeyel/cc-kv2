@@ -8,19 +8,13 @@ export class KvLockManager {
     private btree: BTreeComponent;
 
     /** Content locks are acquired to view an entry's contents. */
-    private content = setmetatable(
-        new LuaMap<string, LockedResource>(),
-        { __mode: "v" },
-    );
+    private content = new LuaMap<string, LockedResource>();
 
     /**
      * Fence locks are acquired to inspect the key range starting at an entry
      * and ending at the next entry.
      */
-    private fences = setmetatable(
-        new LuaMap<string, LockedResource>(),
-        { __mode: "v" },
-    );
+    private fences = new LuaMap<string, LockedResource>();
 
     /** The map of locks held per transaction. */
     private locksPerTx = new LuaMap<LockHolder, LuaSet<Lock>>();
@@ -35,7 +29,7 @@ export class KvLockManager {
     private getContent(key: string): LockedResource {
         const out = this.content.get(key);
         if (out) { return out; }
-        const newOut = new LockedResource();
+        const newOut = new LockedResource(() => this.content.delete(key));
         this.content.set(key, newOut);
         return newOut;
     }
@@ -44,7 +38,7 @@ export class KvLockManager {
         if (!key) { return this.firstFence; }
         const out = this.fences.get(key);
         if (out) { return out; }
-        const newOut = new LockedResource();
+        const newOut = new LockedResource(() => this.fences.delete(key));
         this.fences.set(key, newOut);
         return newOut;
     }

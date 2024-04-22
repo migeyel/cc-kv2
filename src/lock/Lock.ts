@@ -38,6 +38,11 @@ export class LockedResource {
     public queue = new WeakQueue<Ticket>();
     public holders = new LuaMap<LockHolder, Lock>();
     public mode?: LockMode;
+    public onEmpty: () => void;
+
+    public constructor(onEmpty?: () => void) {
+        this.onEmpty = onEmpty || (() => {});
+    }
 }
 
 export class LockHolder {
@@ -213,7 +218,10 @@ export class Lock {
         assert(this.isHeld(), "attempt to interact with a non-held lock");
         this.held = false;
         this.resource.holders.delete(this.holder);
-        if (this.resource.holders.isEmpty()) { this.resource.mode = undefined; }
+        if (this.resource.holders.isEmpty()) {
+            this.resource.mode = undefined;
+            this.resource.onEmpty();
+        }
     }
 }
 
