@@ -20,6 +20,7 @@ import { KvLockManager } from "./lock/KvLockManager";
 import DirLock from "./DirLock";
 import { SetEntryConfig } from "./SetEntryConfig";
 import { Transaction } from "./Transaction";
+import { IndexedCollection } from "./store/indexed/IndexedStore";
 
 enum Namespaces {
     LOG,
@@ -111,23 +112,40 @@ export class InnerKvStore {
     }
 }
 
+const loader = (desc: string): DirStoreCollection => {
+    return new DirStoreCollection(desc, 4096 as PageSize);
+};
+
 export class KvStore {
     private lock: DirLock;
-    private inner: InnerKvStore;
+    private indexedColl: IndexedCollection;
+    private inner?: InnerKvStore;
 
     public constructor(dir: string) {
         this.lock = assert(DirLock.tryAcquire(dir), "database is locked")[0];
         const dataDir = fs.combine(dir, "data");
-        const coll = new DirStoreCollection(dataDir, 4096 as PageSize);
-        this.inner = new InnerKvStore(coll);
+        this.indexedColl = new IndexedCollection(
+            4096 as PageSize,
+            new DirStoreCollection(dataDir, 4096 as PageSize),
+            loader,
+        );
+    }
+
+    public addSubstore(dir: string, quota: number) {
+        this.indexedColl.addSubstore(dir, quota);
+    }
+
+    public delSubstore(dir: string) {
+        this.indexedColl.delSubstore(dir);
     }
 
     public close(): void {
-        this.inner.close();
+        this.inner?.close();
         this.lock.release();
     }
 
     public begin(): Transaction {
+        if (!this.inner) { this.inner = new InnerKvStore(this.indexedColl); }
         return this.inner.begin();
     }
 }
