@@ -41,8 +41,8 @@ export class DirStoreCollection implements IStoreCollection<
     /** The modifications subdir path. */
     private modPath: string;
 
-    /** The shared stores. */
-    private stores = new ShMap<Namespace, DirPageStore>();
+    /** The shared store map. */
+    private map = new ShMap<DirPage, DirPageStore>();
 
     public constructor(dir: string, pageSize: PageSize) {
         this.pageSize = pageSize;
@@ -75,7 +75,8 @@ export class DirStoreCollection implements IStoreCollection<
 
     public getStore(namespace: Namespace): DirPageStore {
         assert(namespace <= MAX_NAMESPACE);
-        return this.stores.getOr(this, namespace, () => new DirPageStore(
+        return this.map.getStore(namespace, () => new DirPageStore(
+            this.map,
             this.pageSize,
             this.dirPath,
             this.modPath,
@@ -105,15 +106,17 @@ class DirPageStore implements IPageStore<DirPage> {
     /** The path prefix for modification in the store. */
     private modPrefix: string;
 
-    /** The shared pages. */
-    private pages = new ShMap<PageNum, DirPage>();
+    /** The shared page map. */
+    private map: ShMap<DirPage, DirPageStore>;
 
     public constructor(
+        map: ShMap<DirPage, DirPageStore>,
         pageSize: PageSize,
         dirPath: string,
         modPath: string,
         namespace: Namespace,
     ) {
+        this.map = map;
         this.pageSize = pageSize;
         this.namespace = namespace;
         this.filePrefix = fs.combine(dirPath, namespace + "_");
@@ -121,7 +124,7 @@ class DirPageStore implements IPageStore<DirPage> {
     }
 
     public getPage(pageNum: PageNum): DirPage {
-        return this.pages.getOr(this, pageNum, () => new DirPage(
+        return this.map.getPage(this.namespace, pageNum, () => new DirPage(
             this.pageSize,
             this.namespace,
             this.filePrefix,

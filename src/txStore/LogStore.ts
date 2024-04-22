@@ -256,25 +256,27 @@ export class TxStore<
 > {
     private state: State;
     private store: IPageStore<IPage>;
-    private sh = new ShMap<PageNum, TxPage<T, E>>();
+    private map: ShMap<AnyTxPage, TxStore<IObj<IEvent>, IEvent>>;
 
     public config: IConfig;
     public pageSize: PageSize;
 
     public constructor(
         state: State,
+        map: ShMap<AnyTxPage, TxStore<IObj<IEvent>, IEvent>>,
         store: IPageStore<IPage>,
         config: IConfig,
     ) {
         this.pageSize = store.pageSize;
         this.state = state;
+        this.map = map;
         this.store = store;
         this.config = config;
     }
 
     public getPage(pageNum: PageNum): TxPage<T, E> {
         const key = cacheKey(this.store.namespace, pageNum);
-        return this.sh.getOr(this, pageNum, () => {
+        return this.map.getPage(this.store.namespace, pageNum, () => {
             return this.config.cache.getOr(key, () => {
                 return new TxPage(
                     this.state,
@@ -282,8 +284,8 @@ export class TxStore<
                     this.config,
                     this.config.cache,
                 );
-            }) as TxPage<T, E>;
-        });
+            });
+        }) as TxPage<T, E>;
     }
 }
 
@@ -291,7 +293,7 @@ export class TxCollection {
     private state: State;
     private collection: IStoreCollection<IPage, IPageStore<IPage>>;
     private config: IConfig;
-    private sh = new ShMap<Namespace, TxStore<IObj<IEvent>, IEvent>>();
+    private map = new ShMap<AnyTxPage, TxStore<IObj<IEvent>, IEvent>>();
     private lastCpLsn!: number;
     private autoCpLimit: number;
     private autoFlushLimitSize?: number;
@@ -325,8 +327,9 @@ export class TxCollection {
     public getStoreCast<T extends IObj<E>, E extends IEvent>(
         namespace: Namespace,
     ): TxStore<T, E> {
-        return this.sh.getOr(this, namespace, () => new TxStore(
+        return this.map.getStore(namespace, () => new TxStore(
             this.state,
+            this.map,
             this.collection.getStore(namespace),
             this.config,
         )) as unknown as TxStore<T, E>;
