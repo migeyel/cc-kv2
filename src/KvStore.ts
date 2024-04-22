@@ -38,7 +38,7 @@ enum ConfigKeys {
     BTREE_ROOT,
 }
 
-export class InnerKvStore {
+class InnerKvStore {
     private cl: TxCollection;
     private config: SetEntryConfig;
     private kvlm: KvLockManager;
@@ -141,6 +141,7 @@ export class KvStore {
 
     public close(): void {
         this.inner?.close();
+        this.indexedColl.close();
         this.lock.release();
     }
 
