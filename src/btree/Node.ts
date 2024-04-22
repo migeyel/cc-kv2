@@ -8,6 +8,7 @@ import {
     Namespace,
     PageNum,
     PageSize,
+    PAGE_LINK_BYTES,
 } from "../store/IPageStore";
 import { NAMESPACE_FMT, PAGE_FMT } from "../txStore/LogRecord/types";
 import { IEvent, IObj, TxCollection, TxPage } from "../txStore/LogStore";
@@ -36,7 +37,6 @@ import {
     deserializeLeafEvent,
     deserializeLeafObj,
 } from "./Leaf";
-import { PAGE_LINK_BYTES } from "../records/SizeClass";
 import { RecordsComponent } from "../records/Records";
 
 type NodeObj = BranchObj | LeafObj;

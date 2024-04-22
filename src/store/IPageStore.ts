@@ -1,8 +1,13 @@
+import { uIntLenBytes } from "../util";
+
 /** The largest value a namespace can take. */
 export const MAX_NAMESPACE = 255;
 
 /** The maximum page number a store can hold. */
 export const MAX_PAGE_NUM = 2 ** 48 - 1;
+
+/** How many bytes it takes to store a page number. */
+export const PAGE_LINK_BYTES = uIntLenBytes(MAX_PAGE_NUM);
 
 /** A collection of pages in a store. */
 export type Namespace = number & { readonly __brand: unique symbol };

@@ -1,6 +1,6 @@
-import { PageNum, PageSize } from "../store/IPageStore";
+import { PageNum, PageSize, PAGE_LINK_BYTES } from "../store/IPageStore";
 import { IEvent, IObj } from "../txStore/LogStore";
-import { PAGE_LINK_BYTES, SIZE_CLASS_BYTES, SizeClass } from "./SizeClass";
+import { SIZE_CLASS_BYTES, SizeClass } from "./SizeClass";
 
 enum EventType {
     CREATE_ENTRY,

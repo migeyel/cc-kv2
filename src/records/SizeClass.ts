@@ -1,4 +1,4 @@
-import { MAX_PAGE_NUM, PageSize } from "../store/IPageStore";
+import { PageSize } from "../store/IPageStore";
 import { uIntLenBytes } from "../util";
 
 /**
@@ -24,9 +24,6 @@ export type SizeClass = number & { readonly __brand: unique symbol };
 
 /** The maximum size class we divide pages in. */
 export const MAX_SIZE_CLASS = 24;
-
-/** The byte size of a linked list link between pages. */
-export const PAGE_LINK_BYTES = uIntLenBytes(MAX_PAGE_NUM);
 
 /** How many bytes it takes to store a size class. */
 export const SIZE_CLASS_BYTES = uIntLenBytes(MAX_SIZE_CLASS);

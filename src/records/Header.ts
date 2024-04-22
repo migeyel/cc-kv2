@@ -1,7 +1,7 @@
-import { PageNum } from "../store/IPageStore";
+import { PageNum, PAGE_LINK_BYTES } from "../store/IPageStore";
 import { IEvent, IObj } from "../txStore/LogStore";
 import { NO_LINK } from "./RecordPage";
-import { MAX_SIZE_CLASS, PAGE_LINK_BYTES, SizeClass } from "./SizeClass";
+import { MAX_SIZE_CLASS, SizeClass } from "./SizeClass";
 
 const EVENT_FMT = "<" + string.rep("I" + PAGE_LINK_BYTES, 2);
 const LINKS_FMT = "<" + string.rep("I" + PAGE_LINK_BYTES, MAX_SIZE_CLASS + 1);

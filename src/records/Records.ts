@@ -6,6 +6,7 @@ import {
     Namespace,
     PageNum,
     PageSize,
+    PAGE_LINK_BYTES,
 } from "../store/IPageStore";
 import { IEvent, IObj, TxCollection, TxPage } from "../txStore/LogStore";
 import {
@@ -28,7 +29,6 @@ import {
     ENTRY_ID_BYTES,
 } from "./RecordPage";
 import {
-    PAGE_LINK_BYTES,
     SizeClass,
     getClassThatFits,
     getSizeClass,

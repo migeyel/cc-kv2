@@ -1,6 +1,5 @@
-import { PAGE_LINK_BYTES } from "../records/SizeClass";
 import { VarRecordId, VarRecordsComponent } from "../records/VarRecords";
-import { PageNum } from "../store/IPageStore";
+import { PAGE_LINK_BYTES, PageNum } from "../store/IPageStore";
 import { PAGE_FMT } from "../txStore/LogRecord/types";
 import { IEvent, IObj } from "../txStore/LogStore";
 import { uIntLenBytes } from "../util";
