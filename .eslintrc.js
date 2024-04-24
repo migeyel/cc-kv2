@@ -1,32 +1,29 @@
 module.exports = {
-    "env": {
-        "es2021": true,
+    env: {
+        es2021: true,
     },
-    "extends": [
-        "eslint:recommended",
-        "plugin:@typescript-eslint/recommended",
-    ],
-    "overrides": [
-    ],
-    "ignorePatterns": ["types/**"],
-    "parser": "@typescript-eslint/parser",
-    "parserOptions": {
-        "ecmaVersion": "latest",
-        "sourceType": "module",
+    extends: ["eslint:recommended", "plugin:@typescript-eslint/recommended"],
+    overrides: [],
+    ignorePatterns: ["types/**"],
+    parser: "@typescript-eslint/parser",
+    parserOptions: {
+        ecmaVersion: "latest",
+        sourceType: "module",
     },
-    "plugins": [
-        "@typescript-eslint",
-    ],
-    "rules": {
-        "prefer-const": ["error", {
-            destructuring: "all",
-            ignoreReadBeforeAssign: false,
-        }],
-        "indent": ["error", 4],
+    plugins: ["@typescript-eslint"],
+    rules: {
+        "prefer-const": [
+            "error",
+            {
+                destructuring: "all",
+                ignoreReadBeforeAssign: false,
+            },
+        ],
+        indent: ["error", 4],
         "linebreak-style": ["error", "unix"],
-        "quotes": ["error", "double"],
-        "semi": ["error", "always"],
-        "curly": ["error", "multi-line"],
+        quotes: ["error", "double"],
+        semi: ["error", "always"],
+        curly: ["error", "multi-line"],
         "array-bracket-newline": ["error", "consistent"],
         "array-bracket-spacing": "error",
         "arrow-parens": "error",
@@ -44,7 +41,7 @@ module.exports = {
         "function-paren-newline": ["error", "multiline-arguments"],
         "key-spacing": "error",
         "keyword-spacing": "error",
-        "max-len": ["error", { code: 80, ignoreUrls: true }],
+        "max-len": ["error", { code: 88, ignoreUrls: true }],
         "new-parens": "error",
         "newline-per-chained-call": "error",
         "no-extra-parens": "error",
@@ -52,17 +49,23 @@ module.exports = {
         "no-trailing-spaces": "error",
         "no-whitespace-before-property": "error",
         "no-constant-condition": ["error", { checkLoops: false }],
-        "@typescript-eslint/no-unused-vars": ["error", {
-            argsIgnorePattern: "^_",
-            varsIgnorePattern: "^_",
-        }],
+        "@typescript-eslint/no-unused-vars": [
+            "error",
+            {
+                argsIgnorePattern: "^_",
+                varsIgnorePattern: "^_",
+            },
+        ],
         "@typescript-eslint/no-namespace": "off",
         "@typescript-eslint/no-this-alias": "off",
         "@typescript-eslint/no-explicit-any": "off",
-        "no-unused-vars": ["error", {
-            argsIgnorePattern: "^_",
-            varsIgnorePattern: "^_",
-        }],
+        "no-unused-vars": [
+            "error",
+            {
+                argsIgnorePattern: "^_",
+                varsIgnorePattern: "^_",
+            },
+        ],
         "nonblock-statement-body-position": "error",
         "object-curly-newline": "error",
         "object-curly-spacing": ["error", "always"],
