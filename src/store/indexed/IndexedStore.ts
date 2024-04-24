@@ -73,6 +73,12 @@ export class IndexedCollection implements IStoreCollection<IndexedPage, IndexedS
         return this.state.stores();
     }
 
+    public getSubstore(desc: string): Substore | undefined {
+        const substoreNum = this.state.invSubstores.get(desc);
+        if (!substoreNum) { return; }
+        return assert(this.state.substores.get(substoreNum));
+    }
+
     public addSubstore(desc: string, quota: number) {
         const substoreNum = this.state.findUnusedSubstoreNum();
         this.state.addSubstore(substoreNum, this.state.loader(desc), desc, quota);
@@ -80,8 +86,13 @@ export class IndexedCollection implements IStoreCollection<IndexedPage, IndexedS
 
     public delSubstore(desc: string) {
         const substoreNum = assert(this.state.invSubstores.get(desc));
-        this.state.drainSubstore(substoreNum);
+        this.state.requotaSubstore(substoreNum, 0);
         this.state.delSubstore(substoreNum);
+    }
+
+    public setSubstoreQuota(desc: string, quota: number) {
+        const substoreNum = assert(this.state.invSubstores.get(desc));
+        this.state.requotaSubstore(substoreNum, quota);
     }
 }
 
@@ -174,10 +185,6 @@ class IndexedPage implements IPage {
             .getPage(this.pageNum);
         this.state.movePage(this.namespace, this.pageNum, substoreNum);
         this.page = page;
-    }
-
-    public drain(substoreNum: SubstoreNum): void {
-        return this.state.drainSubstore(substoreNum);
     }
 
     public createOpen(): void {
@@ -548,18 +555,15 @@ class IndexState {
     }
 
     /**
-     * Moves away all pages from a substore.
-     *
-     * Doesn't prevent it from being filled back afterwards. For that, set its quota to
-     * 0 immediately after draining.
-     *
+     * Moves pages away from a substore to meet a target.
      * @throws If the other substores don't have enough space.
      */
-    public drainSubstore(substoreNum: SubstoreNum) {
+    private drainSubstore(substoreNum: SubstoreNum, target: number) {
         const substore = assert(this.substores.get(substoreNum));
         for (const namespace of substore.collection.listStores()) {
             const store = substore.collection.getStore(namespace);
             for (const pageNum of store.listPages()) {
+                if (substore.usage <= target) { return; }
                 let tgtSubstoreNum = next(this.nonFullSubstores)[0];
                 assert(tgtSubstoreNum, "out of space");
                 if (tgtSubstoreNum == substoreNum) {
@@ -626,12 +630,13 @@ class IndexState {
     }
 
     /**
-     * Changes a substore's maximum page quota.
-     * @throws If the new quota would be exceeded by current usage.
+     * Changes a substore's maximum page quota. Existing pages are moved to other
+     * substores if needed.
+     * @throws If the other substores can't hold enough pages.
      */
     public requotaSubstore(substoreNum: SubstoreNum, quota: number) {
         const substore = assert(this.substores.get(substoreNum));
-        assert(substore.usage <= quota, "can't lower the quota to below usage");
+        if (substore.usage > quota) { this.drainSubstore(substoreNum, quota); }
 
         const descKey = string.pack(DESC_KEY_FMT, Prefix.DESC, substoreNum);
         const descValue = string.pack(DESC_VAL_FMT, substore.desc, quota);
