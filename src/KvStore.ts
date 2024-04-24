@@ -21,6 +21,7 @@ import DirLock from "./DirLock";
 import { SetEntryConfig } from "./SetEntryConfig";
 import { Transaction } from "./Transaction";
 import { IndexedCollection } from "./store/indexed/IndexedStore";
+import { uuid4 } from "./uid";
 
 enum Namespaces {
     LOG,
@@ -112,8 +113,29 @@ class InnerKvStore {
     }
 }
 
+/** How a substore is made to be discovered. */
+enum SubstoreDescType {
+    /** Stored on the hdd drive with a path. */
+    HDD_WITH_PATH = 1,
+
+    /** Stored in a disk drive with a UUID directory at its root. */
+    DISK_WITH_UUID = 2,
+}
+
 const loader = (desc: string): DirStoreCollection => {
-    return new DirStoreCollection(desc, 4096 as PageSize);
+    const byte = string.byte(desc);
+    if (byte == SubstoreDescType.HDD_WITH_PATH) {
+        const path = string.sub(desc, 2);
+        assert(fs.isDir(path), "couldn't load substore at " + path);
+        return new DirStoreCollection(path, 4096 as PageSize);
+    } else if (byte == SubstoreDescType.DISK_WITH_UUID) {
+        const uuid = string.sub(desc, 2);
+        const path = fs.find("/disk*/" + uuid)[0];
+        assert(fs.isDir(path), "couldn't load disk substore " + uuid);
+        return new DirStoreCollection(path, 4096 as PageSize);
+    } else {
+        throw "unrecognized substore type: " + byte;
+    }
 };
 
 export class KvStore {
@@ -131,12 +153,81 @@ export class KvStore {
         );
     }
 
-    public addSubstore(dir: string, quota: number) {
-        this.indexedColl.addSubstore(dir, quota);
+    public addHddSubstore(dir: string, quota: number) {
+        fs.makeDir(dir);
+        const desc = string.char(SubstoreDescType.HDD_WITH_PATH) + dir;
+        this.indexedColl.addSubstore(desc, quota);
     }
 
-    public delSubstore(dir: string) {
-        this.indexedColl.delSubstore(dir);
+    public addDriveSubstore(driveName: string, quota: number) {
+        const types = peripheral.getType(driveName);
+        assert(types.indexOf("drive") != -1, "not a drive: " + driveName);
+        const drive = peripheral.wrap(driveName) as DrivePeripheral;
+        const uuid = uuid4();
+        fs.makeDir(fs.combine(drive.getMountPath(), uuid));
+        const desc = string.char(SubstoreDescType.DISK_WITH_UUID) + uuid;
+        this.indexedColl.addSubstore(desc, quota);
+    }
+
+    public delHddSubstore(dir: string) {
+        const desc = string.char(SubstoreDescType.HDD_WITH_PATH) + dir;
+        this.indexedColl.delSubstore(desc);
+        fs.delete(dir);
+    }
+
+    public delDriveSubstore(driveName: string) {
+        const types = peripheral.getType(driveName);
+        assert(types.indexOf("drive") != -1, "not a drive: " + driveName);
+        const drive = peripheral.wrap(driveName) as DrivePeripheral;
+        const mountPath = drive.getMountPath();
+        for (const name of fs.list(mountPath)) {
+            const desc = string.char(SubstoreDescType.DISK_WITH_UUID) + name;
+            if (this.indexedColl.getSubstore(desc)) {
+                this.indexedColl.delSubstore(desc);
+                fs.delete(fs.combine(mountPath, desc));
+            }
+        }
+    }
+
+    public setDriveSubstoreQuota(driveName: string, quota: number) {
+        const types = peripheral.getType(driveName);
+        assert(types.indexOf("drive") != -1, "not a drive: " + driveName);
+        const drive = peripheral.wrap(driveName) as DrivePeripheral;
+        const mountPath = drive.getMountPath();
+        for (const name of fs.list(mountPath)) {
+            const desc = string.char(SubstoreDescType.DISK_WITH_UUID) + name;
+            if (this.indexedColl.getSubstore(desc)) {
+                this.indexedColl.setSubstoreQuota(desc, quota);
+            }
+        }
+    }
+
+    public getDriveSubstoreQuota(driveName: string): number | undefined {
+        const types = peripheral.getType(driveName);
+        assert(types.indexOf("drive") != -1, "not a drive: " + driveName);
+        const drive = peripheral.wrap(driveName) as DrivePeripheral;
+        const mountPath = drive.getMountPath();
+        for (const name of fs.list(mountPath)) {
+            const desc = string.char(SubstoreDescType.DISK_WITH_UUID) + name;
+            const substore = this.indexedColl.getSubstore(desc);
+            if (substore) {
+                return substore.quota;
+            }
+        }
+    }
+
+    public getDriveSubstoreUsage(driveName: string): number | undefined {
+        const types = peripheral.getType(driveName);
+        assert(types.indexOf("drive") != -1, "not a drive: " + driveName);
+        const drive = peripheral.wrap(driveName) as DrivePeripheral;
+        const mountPath = drive.getMountPath();
+        for (const name of fs.list(mountPath)) {
+            const desc = string.char(SubstoreDescType.DISK_WITH_UUID) + name;
+            const substore = this.indexedColl.getSubstore(desc);
+            if (substore) {
+                return substore.usage;
+            }
+        }
     }
 
     public close(): void {
