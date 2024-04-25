@@ -29,6 +29,13 @@ class CowState {
         }
     }
 
+    public getRemainingPage(): LuaMultiReturn<[Namespace, PageNum] | []> {
+        const key: string | undefined = next(this.remaining)[0];
+        if (!key) { return $multi(); }
+        const [namespace, pageNum] = string.unpack(PAGE_KEY_FMT, key);
+        return $multi(namespace, pageNum);
+    }
+
     public handlePageWrite(page: IPage) {
         const key = string.pack(PAGE_KEY_FMT, page.namespace, page.pageNum);
         if (this.remaining.has(key)) {
@@ -38,6 +45,10 @@ class CowState {
     }
 }
 
+/**
+ * A CowCollection lets you attach a handler that gets called every time a page is
+ * written to. This gives
+ */
 export class CowCollection implements IStoreCollection<CowPage, CowStore> {
     public readonly pageSize: PageSize;
 
@@ -50,8 +61,16 @@ export class CowCollection implements IStoreCollection<CowPage, CowStore> {
         this.pageSize = inner.pageSize;
     }
 
+    /** Sets a handler that gets called on page writes. */
     public setHandler(handler: CowHandler) {
         this.state.setHandler(this.inner, handler);
+    }
+
+    /** Calls the handler on a page that it hasn't seen yet, if any. */
+    public handleSomePage() {
+        const [namespace, pageNum] = this.state.getRemainingPage();
+        if (!namespace) { return; }
+        this.state.handlePageWrite(this.getStore(namespace).getPage(pageNum));
     }
 
     public getStore(namespace: Namespace): CowStore {
