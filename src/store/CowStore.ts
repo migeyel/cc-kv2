@@ -163,8 +163,4 @@ export class CowPage implements IPage {
     public closeAppend(): void {
         return this.inner.closeAppend();
     }
-
-    public flush(): void {
-        return this.inner.flush();
-    }
 }

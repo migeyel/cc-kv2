@@ -29,10 +29,6 @@ export type PageNum = number & { readonly __brand: unique symbol };
  * Because they are meant to reflect global disk state, implementors must ensure
  * that all references to the same page are always shared. Equality between
  * pages can also be checked by checking if they are the same object.
- *
- * ## Writes may not Persist until Flushed
- * Implementors may choose to not persist writes until later, or until `flush()`
- * is called. If a page has no disk backing it may never persist.
  */
 export interface IPage {
     /** The maximum size for contents in this page. */
@@ -109,20 +105,6 @@ export interface IPage {
      * concurrent write attempt.
      */
     closeAppend(): void;
-
-    /**
-     * Flushes a page to disk.
-     * @throws If the page doesn't exist.
-     *
-     * When this function returns, and if the page has a disk backing, ensures
-     * that its contents will persist after a reboot.
-     *
-     * Flushing is atomic: the disk page's contents either contain the complete
-     * contents of the flush, or the complete contents before it, but nothing
-     * in between those. However, due to CC limitations, this may not apply in
-     * the event of a host power failure, hard reboot, or kernel panic.
-     */
-    flush(): void;
 }
 
 /**

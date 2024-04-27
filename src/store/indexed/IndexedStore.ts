@@ -231,10 +231,6 @@ class IndexedPage implements IPage {
     public closeAppend(): void {
         return assert(this.page).closeAppend();
     }
-
-    public flush(): void {
-        return assert(this.page).flush();
-    }
 }
 
 /** Information for a substore. */

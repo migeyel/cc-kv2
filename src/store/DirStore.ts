@@ -257,6 +257,4 @@ class DirPage implements IPage {
         assert(this.handle).close();
         this.handle = undefined;
     }
-
-    public flush(): void { }
 }
