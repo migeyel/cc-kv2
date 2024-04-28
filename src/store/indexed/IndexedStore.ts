@@ -94,6 +94,14 @@ export class IndexedCollection implements IStoreCollection<IndexedPage, IndexedS
         const substoreNum = assert(this.state.invSubstores.get(desc));
         this.state.requotaSubstore(substoreNum, quota);
     }
+
+    public getUsage(): number {
+        return this.state.totalUsage;
+    }
+
+    public getQuota(): number {
+        return this.state.totalQuota;
+    }
 }
 
 class IndexedStore implements IPageStore<IndexedPage> {
@@ -287,6 +295,8 @@ class IndexState {
     public invSubstores: LuaMap<string, SubstoreNum>;
     public nonFullSubstores: LuaSet<SubstoreNum>;
     public loader: SubstoreLoader;
+    public totalQuota: number;
+    public totalUsage: number;
 
     public constructor(
         indexCollection: IStoreCollection<IPage, IPageStore<IPage>>,
@@ -335,6 +345,8 @@ class IndexState {
         this.nonFullSubstores = new LuaSet();
         this.substores = new LuaMap();
         this.invSubstores = new LuaMap();
+        this.totalQuota = 0;
+        this.totalUsage = 0;
         let descKey = string.char(Prefix.DESC);
         while (true) {
             const [_, descKv] = this.config.btree.search(this.cl, descKey + "\0");
@@ -349,6 +361,9 @@ class IndexState {
             const [___, usageKv] = this.config.btree.search(this.cl, usageKey);
             assert(assert(usageKv).key == usageKey);
             const [usage] = string.unpack(USAGE_VAL_FMT, usageKv!.value);
+
+            this.totalQuota += quota;
+            this.totalUsage += usage;
 
             this.substores.set(substoreNum, {
                 collection: loader(desc),
@@ -444,6 +459,7 @@ class IndexState {
         const usageValue = string.pack(USAGE_VAL_FMT, usage);
         this.cl.doAct(txId, <SetEntryAct>{ key: usageKey, value: usageValue });
 
+        this.totalUsage = this.totalUsage - substore.usage + usage;
         substore.usage = usage;
         if (substore.usage < substore.quota) {
             this.nonFullSubstores.add(substoreNum);
@@ -639,6 +655,7 @@ class IndexState {
         this.cl.doAct(0 as TxId, <SetEntryAct>{ key: descKey, value: descValue });
         this.cl.commit(0 as TxId);
 
+        this.totalQuota = this.totalQuota - substore.quota + quota;
         substore.quota = quota;
     }
 
