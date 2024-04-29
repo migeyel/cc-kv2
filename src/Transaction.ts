@@ -4,7 +4,7 @@ import {
 } from "./txStore/LogStore";
 import { KvLockManager } from "./lock/KvLockManager";
 import * as expect from "cc/expect";
-import { LockHolder } from "./lock/Lock";
+import { LockedResource, LockHolder } from "./lock/Lock";
 import { SetEntryAct, SetEntryConfig } from "./SetEntryConfig";
 
 export class Transaction {
@@ -102,21 +102,29 @@ export class Transaction {
         this.cl.doAct(this.id, <SetEntryAct>{ key });
     }
 
-    /** Commits the transaction. */
-    public commit(): void {
+    /**
+     * Commits the transaction.
+     * @returns The set of released resources.
+     */
+    public commit(): LuaSet<LockedResource> {
         assert(this.active, "can't operate on an inactive transaction");
         this.cl.commit(this.id);
-        this.kvlm.releaseLocks(this.holder);
+        const out = this.holder.releaseAll();
         this.active = false;
         this.txsMap.delete(this.id);
+        return out;
     }
 
-    /** Rolls the transaction back. */
-    public rollback(): void {
-        if (!this.active) { return; }
+    /**
+     * Rolls the transaction back.
+     * @returns The set of released resources.
+     */
+    public rollback(): LuaSet<LockedResource> {
+        if (!this.active) { return new LuaSet(); }
         this.cl.rollback(this.id);
-        this.kvlm.releaseLocks(this.holder);
+        const out = this.holder.releaseAll();
         this.active = false;
         this.txsMap.delete(this.id);
+        return out;
     }
 }

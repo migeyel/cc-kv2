@@ -1,234 +1,216 @@
-import { WeakQueue } from "../WeakQueue";
-import { uid } from "../uid";
+import { Deque, DequeNode } from "../Deque";
 
-const LOCK_RELEASED = "lock_released";
-const DEADLOCK_VICTIM = "deadlock_victim";
+/** The set of all resources that holders are waiting for */
+export const waitingFor = new LuaMap<LockHolder, LockedResource>();
 
-export const waitForGraph = new LuaMap<LockHolder, LockedResource>();
+/**
+ * Finds and breaks deadlocks.
+ * @returns A set of lock holders that must cancel to break the deadlock.
+ */
+export function breakDeadlocks(): LuaSet<LockHolder> {
+    const out = new LuaSet<LockHolder>();
+    const wfCopy = new LuaMap<LockHolder, LockedResource>();
+    for (const [k, v] of waitingFor) { wfCopy.set(k, v); }
 
-export function breakDeadlocks() {
     const open = new LuaSet<LockHolder>();
     const closed = new LuaSet<LockHolder>();
 
     const dfs = (v: LockHolder) => {
         if (closed.has(v)) { return; }
-        if (!waitForGraph.has(v)) { return; }
+        if (!wfCopy.has(v)) { return; }
         if (open.has(v)) {
-            os.queueEvent(DEADLOCK_VICTIM, v.id);
+            out.add(v);
             open.delete(v);
-            waitForGraph.delete(v);
+            wfCopy.delete(v);
             return;
         }
 
         open.add(v);
-        for (const [child] of waitForGraph.get(v)!.holders) {
+        for (const child of assert(wfCopy.get(v)).holders) {
             dfs(child);
-            if (!waitForGraph.has(v)) { return; }
+            if (!wfCopy.has(v)) { return; }
         }
         closed.add(v);
     };
 
     const vertices = new LuaSet<LockHolder>();
-    for (const [v] of waitForGraph) { vertices.add(v); }
+    for (const [v] of wfCopy) { vertices.add(v); }
     for (const v of vertices) { dfs(v); }
+
+    return out;
 }
 
+
+enum LockMode {
+    EXCLUSIVE,
+    SHARED,
+}
+
+export type LockCb = () => void;
+
+type Ticket = {
+    holder: LockHolder,
+    mode: LockMode,
+}
+
+/** A resource accessible through locking. */
 export class LockedResource {
-    public id = uid();
-    public queue = new WeakQueue<Ticket>();
-    public holders = new LuaMap<LockHolder, Lock>();
-    public mode?: LockMode;
+    /** Locks waiting to acquire the resource. */
+    public queue = new Deque<Ticket>();
+
+    /** Holders waiting for the resource. */
+    public waiting = new LuaMap<LockHolder, DequeNode<Ticket>>();
+
+    /** Holders currently holding the lock in shared or exclusive mode. */
+    public holders = new LuaSet<LockHolder>();
+
+    /** A holder currently holding the lock in exclusive mode. */
+    public exclusiveHolder?: LockHolder;
+
+    /** Called when there are no holders left holding or waiting for the resource. */
     public onEmpty: () => void;
+
+    public emptyCheck() {
+        if (this.queue.isEmpty() && this.holders.isEmpty()) { this.onEmpty(); }
+    }
 
     public constructor(onEmpty?: () => void) {
         this.onEmpty = onEmpty || (() => {});
     }
 }
 
+/** An actor that can hold a lock. */
 export class LockHolder {
-    public readonly id = uid();
-}
+    /** Resources the holder is holding. */
+    private held = new LuaSet<LockedResource>();
 
-/** A held lock on a resource. */
-export class Lock {
-    /** The shared resource, which includes a slot and a queue. */
-    public readonly resource: LockedResource;
+    /** The resource the holder is currently waiting on, if any. */
+    private waiting?: LockedResource;
 
-    /** The lock's holder. */
-    public readonly holder: LockHolder;
-
-    /** Whether this lock is being held or has been released. */
-    private held = true;
-
-    private constructor(holder: LockHolder, resource: LockedResource) {
-        this.holder = holder;
-        this.resource = resource;
+    /** Acquires a resource in exclusive mode. */
+    public acquireExclusive(resource: LockedResource) {
+        assert(!this.waiting);
+        this.waiting = resource;
+        waitingFor.set(this, resource);
+        resource.queue.pushBack({ holder: this, mode: LockMode.EXCLUSIVE });
+        while (!this.tryAcquire()) { coroutine.yield(); }
     }
 
-    public static exclusive(holder: LockHolder, resource: LockedResource): Lock {
-        const lock = new Lock(holder, resource);
+    /** Acquires a resource in shared mode. */
+    public acquireShared(resource: LockedResource) {
+        assert(!this.waiting);
+        this.waiting = resource;
+        waitingFor.set(this, resource);
+        resource.queue.pushBack({ holder: this, mode: LockMode.SHARED });
+        while (!this.tryAcquire()) { coroutine.yield; }
+    }
 
-        // If the slot is free, take it.
-        if (!resource.mode) {
-            resource.mode = LockMode.EXCLUSIVE;
-            resource.holders.set(holder, lock);
-            return lock;
-        }
-
-        // Enter the queue.
-        waitForGraph.set(holder, resource);
-        const ownTicket = { mode: LockMode.EXCLUSIVE };
-        resource.queue.enqueue(ownTicket);
-        while (true) {
-            if (resource.queue.peek() == ownTicket && !resource.mode) {
-                // We've reached the front, and there's no lock in the slot.
-                resource.queue.dequeue();
-                resource.mode = LockMode.EXCLUSIVE;
-                resource.holders.set(holder, lock);
-                waitForGraph.delete(holder);
-                return lock;
-            }
-
-            while (true) {
-                const ev = os.pullEvent();
-                if (ev[0] == LOCK_RELEASED) {
-                    break;
-                } else if (ev[0] == DEADLOCK_VICTIM && ev[1] == holder.id) {
-                    throw "deadlock";
+    /** Tries to acquire a waited for resource. */
+    private tryAcquire(): boolean {
+        const resource = assert(this.waiting);
+        const ticket = assert(resource.queue.first()).val;
+        if (assert(resource.queue.first()).val.holder == this) {
+            // We reached the front of the queue.
+            if (resource.exclusiveHolder != undefined) {
+                // There is an exclusive holder.
+                if (resource.exclusiveHolder == this) {
+                    // We already hold the resource. No-op.
+                    resource.queue.popFront();
+                    this.waiting = undefined;
+                    waitingFor.delete(this);
+                    return true;
+                } else {
+                    // We have to wait for the holder to release.
+                    return false;
+                }
+            } else if (!resource.holders.isEmpty()) {
+                // There are only shared holders.
+                if (ticket.mode == LockMode.SHARED) {
+                    // Share the resource with them.
+                    resource.queue.popFront();
+                    this.waiting = undefined;
+                    waitingFor.delete(this);
+                    this.held.add(resource);
+                    resource.holders.add(this);
+                    return true;
+                } else {
+                    const [first] = next(resource.holders);
+                    const [second] = next(resource.holders, first);
+                    if (first == this && second == undefined) {
+                        // We're the sole shared holder. Upgrade the lock.
+                        resource.queue.popFront();
+                        this.waiting = undefined;
+                        waitingFor.delete(this);
+                        resource.exclusiveHolder = this;
+                        return true;
+                    } else {
+                        // We have to wait for the other holders to release.
+                        return false;
+                    }
+                }
+            } else {
+                // There are no holders.
+                if (ticket.mode == LockMode.EXCLUSIVE) {
+                    // Acquire in exclusive mode.
+                    resource.queue.popFront();
+                    this.waiting = undefined;
+                    waitingFor.delete(this);
+                    this.held.add(resource);
+                    resource.exclusiveHolder = this;
+                    resource.holders.add(this);
+                    return true;
+                } else {
+                    // Acquire in shared mode.
+                    resource.queue.popFront();
+                    this.waiting = undefined;
+                    waitingFor.delete(this);
+                    this.held.add(resource);
+                    resource.holders.add(this);
+                    return true;
                 }
             }
+        } else {
+            // We haven't reached the front of the queue.
+            return false;
         }
     }
 
-    public static shared(holder: LockHolder, resource: LockedResource): Lock {
-        const lock = new Lock(holder, resource);
+    /** Cancels waiting for a resource. */
+    public abort() {
+        const resource = assert(this.waiting);
+        assert(resource.waiting.get(this)).pop();
+        this.waiting = undefined;
+        waitingFor.delete(this);
+        resource.emptyCheck();
+    }
 
-        // If the slot is free, take it.
-        if (!resource.mode) {
-            resource.mode = LockMode.SHARED;
-            resource.holders.set(holder, lock);
-            return lock;
+    /** Releases a held resource. */
+    public release(resource: LockedResource) {
+        assert(this.held.has(resource));
+        assert(this.waiting != resource);
+        this.held.delete(resource);
+        resource.exclusiveHolder = undefined;
+        resource.holders.delete(this);
+        resource.emptyCheck();
+    }
+
+    /**
+     * Releases all resources held and being awaited.
+     * @returns All resources held before releasing.
+     */
+    public releaseAll(): LuaSet<LockedResource> {
+        const out = new LuaSet<LockedResource>();
+
+        if (this.waiting) {
+            out.add(this.waiting);
+            this.abort();
         }
 
-        // Enter the queue.
-        waitForGraph.set(holder, resource);
-        const ownTicket = { mode: LockMode.SHARED };
-        resource.queue.enqueue(ownTicket);
-        while (true) {
-            if (resource.queue.peek() == ownTicket) {
-                // We've reached the front.
-                if (!resource.mode) {
-                    // There are no locks on the resource.
-                    resource.queue.dequeue();
-                    resource.mode = LockMode.SHARED;
-                    resource.holders.set(holder, lock);
-                    waitForGraph.delete(holder);
-                    return lock;
-                } else if (resource.mode == LockMode.SHARED) {
-                    // There are shared locks on the resource.
-                    resource.queue.dequeue();
-                    resource.holders.set(holder, lock);
-                    waitForGraph.delete(holder);
-                    return lock;
-                }
-            }
-
-            while (true) {
-                const ev = os.pullEvent();
-                if (ev[0] == LOCK_RELEASED) {
-                    break;
-                } else if (ev[0] == DEADLOCK_VICTIM && ev[1] == holder.id) {
-                    throw "deadlock";
-                }
-            }
+        for (const h of this.held) {
+            out.add(h);
+            this.release(h);
         }
+
+        return out;
     }
-
-    /**
-     * Checks if this lock is being held.
-     * @returns Whether this lock is currently held and can be interacted with.
-     */
-    public isHeld(): boolean {
-        return this.held;
-    }
-
-    /**
-     * Checks if this lock is shared.
-     * @returns Whether this lock is a shared lock.
-     * @throws If this lock has been released.
-     */
-    public isShared(): boolean {
-        assert(this.isHeld(), "attempt to interact with a non-held lock");
-        return this.resource.mode == LockMode.SHARED;
-    }
-
-    /**
-     * Tries to upgrade from shared to exclusive. No-op on exclusive locks.
-     * @throws If this lock has been released.
-     */
-    public upgrade(): void {
-        assert(this.isHeld(), "attempt to interact with a non-held lock");
-        if (!this.isShared()) { return; }
-
-        // Enter the queue with an exclusive intent.
-        waitForGraph.set(this.holder, this.resource);
-        const ticket = { mode: LockMode.EXCLUSIVE };
-        this.resource.queue.enqueue(ticket);
-        while (true) {
-            const front = this.resource.queue.peek()!;
-            if (
-                front.mode == LockMode.EXCLUSIVE &&
-                next(this.resource.holders)[0] == this.holder &&
-                next(this.resource.holders, this.holder)[0] == undefined
-            ) {
-                // The front is an exclusive intent and we're the sole lock
-                // holder. Upgrading right now is as fair as it can be.
-                this.resource.mode = LockMode.EXCLUSIVE;
-                waitForGraph.delete(this.holder);
-                return;
-            }
-
-            while (true) {
-                const ev = os.pullEvent();
-                if (ev[0] == LOCK_RELEASED) {
-                    break;
-                } else if (ev[0] == DEADLOCK_VICTIM && ev[1] == this.holder.id) {
-                    throw "deadlock";
-                }
-            }
-        }
-    }
-
-    /**
-     * Downgrades from exclusive to shared. No-op on shared locks.
-     * @throws If this lock has been released.
-     */
-    public downgrade() {
-        assert(this.isHeld(), "attempt to interact with a non-held lock");
-        if (this.isShared()) { return; }
-        this.resource.mode = LockMode.SHARED;
-    }
-
-    /**
-     * Releases the lock, freeing the resource for other thread usage.
-     *
-     * After this action, any other method calls will throw, except for isHeld.
-     */
-    public release() {
-        assert(this.isHeld(), "attempt to interact with a non-held lock");
-        this.held = false;
-        this.resource.holders.delete(this.holder);
-        if (this.resource.holders.isEmpty()) {
-            this.resource.mode = undefined;
-            this.resource.onEmpty();
-        }
-    }
-}
-
-/** A ticket on a queue waiting for a some lock to be released. */
-type Ticket = { mode: LockMode };
-
-enum LockMode {
-    EXCLUSIVE,
-    SHARED,
 }

@@ -1,6 +1,6 @@
 import { BTreeComponent, KvPair } from "../btree/Node";
 import { TxCollection } from "../txStore/LogStore";
-import { Lock, LockHolder, LockedResource } from "./Lock";
+import { LockHolder, LockedResource } from "./Lock";
 
 /** A SS2PL lock manager. */
 export class KvLockManager {
@@ -15,9 +15,6 @@ export class KvLockManager {
      * and ending at the next entry.
      */
     private fences = new LuaMap<string, LockedResource>();
-
-    /** The map of locks held per transaction. */
-    private locksPerTx = new LuaMap<LockHolder, LuaSet<Lock>>();
 
     /** The first fence is the fence that comes before the first entry. */
     private firstFence = new LockedResource();
@@ -43,50 +40,6 @@ export class KvLockManager {
         return newOut;
     }
 
-    private getLocks(holder: LockHolder): LuaSet<Lock> {
-        const out = this.locksPerTx.get(holder);
-        if (out) { return out; }
-        const newOut = new LuaSet<Lock>();
-        this.locksPerTx.set(holder, newOut);
-        return newOut;
-    }
-
-    /** Acquires an exclusive lock on a resource or upgrades if possible. */
-    private exclusive(resource: LockedResource, holder: LockHolder): Lock {
-        if (!resource.mode || !resource.holders.has(holder)) {
-            const lock = Lock.exclusive(holder, resource);
-            this.getLocks(holder).add(lock);
-            return lock;
-        } else {
-            const lock = resource.holders.get(holder)!;
-            lock.upgrade();
-            return lock;
-        }
-    }
-
-    /** Acquires a shared lock on a resource. */
-    private shared(resource: LockedResource, holder: LockHolder): Lock {
-        if (!resource.mode || !resource.holders.has(holder)) {
-            const lock = Lock.shared(holder, resource);
-            this.getLocks(holder).add(lock);
-            return lock;
-        }
-        return resource.holders.get(holder)!;
-    }
-
-    /** Releases a lock and unlinks related structures. */
-    private release(lock: Lock) {
-        lock.release();
-        this.getLocks(lock.holder).delete(lock);
-    }
-
-    /** Releases all locks on a transaction and unlinks related structures. */
-    public releaseLocks(holder: LockHolder): void {
-        for (const lock of this.getLocks(holder)) { lock.release(); }
-        this.locksPerTx.delete(holder);
-        os.queueEvent("lock_released");
-    }
-
     private exclusiveFence(
         cl: TxCollection,
         key: string,
@@ -96,13 +49,12 @@ export class KvLockManager {
         // Locking may change what the previous node is, so we need to keep
         // trying until it settles.
         let oldPrev = prev;
-        let oldLock = this.exclusive(this.getFence(oldPrev?.key), holder);
+        holder.acquireExclusive(this.getFence(oldPrev?.key));
         while (true) {
             const [newPrev] = this.btree.search(cl, key);
             if (oldPrev?.key == newPrev?.key) { break; }
-            const newLock = this.exclusive(this.getFence(newPrev?.key), holder);
-            this.release(oldLock);
-            oldLock = newLock;
+            holder.acquireExclusive(this.getFence(newPrev?.key));
+            holder.release(this.getFence(oldPrev?.key));
             oldPrev = newPrev;
         }
     }
@@ -116,20 +68,19 @@ export class KvLockManager {
         // Locking may change what the previous node is, so we need to keep
         // trying until it settles.
         let oldPrev = prev;
-        let oldLock = this.shared(this.getFence(oldPrev?.key), holder);
+        holder.acquireShared(this.getFence(oldPrev?.key));
         while (true) {
             const [newPrev] = this.btree.search(cl, key);
             if (oldPrev?.key == newPrev?.key) { break; }
-            const newLock = this.shared(this.getFence(newPrev?.key), holder);
-            this.release(oldLock);
-            oldLock = newLock;
+            holder.acquireShared(this.getFence(newPrev?.key));
+            holder.release(this.getFence(oldPrev?.key));
             oldPrev = newPrev;
         }
     }
 
     /** Acquires locks for setting/inserting a value. */
     public acquireSet(cl: TxCollection, key: string, holder: LockHolder): void {
-        this.exclusive(this.getContent(key), holder);
+        holder.acquireExclusive(this.getContent(key));
 
         const [prev, next] = this.btree.search(cl, key);
         if (!next || next.key != key) {
@@ -140,7 +91,7 @@ export class KvLockManager {
 
     /** Acquires locks for deleting a value. */
     public acquireDelete(cl: TxCollection, key: string, holder: LockHolder): void {
-        this.exclusive(this.getContent(key), holder);
+        holder.acquireExclusive(this.getContent(key));
 
         const [prev, next] = this.btree.search(cl, key);
         if (next && next.key == key) {
@@ -151,7 +102,7 @@ export class KvLockManager {
 
     /** Acquires locks for getting a value. */
     public acquireGet(key: string, holder: LockHolder): void {
-        this.shared(this.getContent(key), holder);
+        holder.acquireShared(this.getContent(key));
     }
 
     /** Acquires locks for getting the next key and value. */
@@ -163,10 +114,10 @@ export class KvLockManager {
 
             // Now we can carry on the search and lock the content.
             const [_, cNext] = this.btree.search(cl, key);
-            if (cNext) { this.shared(this.getContent(cNext.key), holder); }
+            if (cNext) { holder.acquireShared(this.getContent(cNext.key)); }
         } else {
             // Key exists so lock the content.
-            this.shared(this.getContent(key), holder);
+            holder.acquireShared(this.getContent(key));
         }
     }
 }
