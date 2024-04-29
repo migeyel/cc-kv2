@@ -1,11 +1,11 @@
 import {
     TxId,
     TxCollection,
-} from "./txStore/LogStore";
-import { KvLockManager } from "./lock/KvLockManager";
+} from "../txStore/LogStore";
+import { KvLockManager } from "./KvLockManager";
 import * as expect from "cc/expect";
-import { LockedResource, LockHolder } from "./lock/Lock";
-import { SetEntryAct, SetEntryConfig } from "./SetEntryConfig";
+import { LockedResource, LockHolder } from "./Lock";
+import { SetEntryAct, SetEntryConfig } from "../SetEntryConfig";
 
 export class Transaction {
     private id: TxId;
