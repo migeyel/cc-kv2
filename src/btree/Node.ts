@@ -126,6 +126,18 @@ type DeletionResult = {
     oldVal?: string,
 }
 
+/** Intercepts KV reads and writes for other purposes. */
+export interface BTreeOpInterceptor {
+    /**
+     * Called whenever a key is read and returned from the tree. A call to next() will
+     * call this method twice.
+     */
+    onRead(key: string, value?: string): void;
+
+    /** Called whenever a key is written to the tree. */
+    onWrite(key: string, oldValue?: string, newValue?: string): void;
+}
+
 /** A component implementing a disk B+ tree. */
 export class BTreeComponent {
     private branchNamespace: Namespace;
@@ -149,6 +161,9 @@ export class BTreeComponent {
 
     /** The minimum used space for branch nodes before they underflow. */
     private branchMinUsedSpace: number;
+
+    /** An interceptor for r/w operations. */
+    private interceptor?: BTreeOpInterceptor;
 
     public constructor(
         collection: IStoreCollection<IPage, IPageStore<IPage>>,
@@ -203,6 +218,11 @@ export class BTreeComponent {
         const b = this.allocatedLeaves.deserializeEv(n, s); if (b) return b;
         const c = this.rootPageConfig.deserializeEv(n, s); if (c) return c;
         const d = this.vrc.deserializeEv(n, s); if (d) return d;
+    }
+
+    /** Enables interception of tree reads and writes. */
+    public interceptRw(interceptor?: BTreeOpInterceptor) {
+        this.interceptor = interceptor;
     }
 
     /**
@@ -382,7 +402,12 @@ export class BTreeComponent {
         cl: TxCollection,
         key: string,
     ): LuaMultiReturn<[KvPair | undefined, KvPair | undefined]> {
-        return this.recursiveSearch(cl, key, this.getRoot(cl).obj);
+        const [prev, next] = this.recursiveSearch(cl, key, this.getRoot(cl).obj);
+        if (this.interceptor) {
+            if (prev) { this.interceptor.onRead(prev.key); }
+            if (next) { this.interceptor.onRead(next.key); }
+        }
+        return $multi(prev, next);
     }
 
     /** Returns whether a to-be-inserted entry can fit in a leaf node. */
@@ -670,6 +695,8 @@ export class BTreeComponent {
 
         // Set the new root in the config.
         this.setRoot(cl, new RootId(newRoot.namespace, newRoot.pageNum));
+
+        if (this.interceptor) { this.interceptor.onWrite(key, result.oldVal, value); }
 
         return result.oldVal;
     }
@@ -1051,6 +1078,10 @@ export class BTreeComponent {
                 ),
             );
             root.doEvent(new DeinitBranchEvent());
+        }
+
+        if (this.interceptor) {
+            this.interceptor.onWrite(key, result.oldVal, undefined);
         }
 
         return result.oldVal;
