@@ -77,6 +77,44 @@ export class LockedResource {
         if (this.queue.isEmpty() && this.holders.isEmpty()) { this.onEmpty(); }
     }
 
+    /**
+     * Returns which holders need to be notified that a lock on this resource has been
+     * released, if any.
+     */
+    public holdersToNotify(): LuaSet<LockHolder> {
+        const out = new LuaSet<LockHolder>();
+        if (this.holders.isEmpty()) {
+            const first = this.queue.first();
+            if (!first) { return out; }
+            if (first.val.mode == LockMode.SHARED) {
+                // Notify all shared holders at the front of the queue.
+                out.add(first.val.holder);
+                let node = first.getNext();
+                while (true) {
+                    if (!node) { return out; }
+                    if (node.val.mode == LockMode.EXCLUSIVE) { return out; }
+                    out.add(node.val.holder);
+                    node = node.getNext();
+                }
+            } else {
+                // Notify the exclusive holder at the front.
+                out.add(first.val.holder);
+                return out;
+            }
+        } else if (this.exclusiveHolder == undefined) {
+            const [first] = next(this.holders);
+            const [second] = next(this.holders, first);
+            if (second != undefined) { return out; }
+            const waiter = this.waiting.get(first);
+            if (!waiter || waiter.val.mode != LockMode.EXCLUSIVE) { return out; }
+            // Notify the holder holding a shared lock and waiting to upgrade it.
+            out.add(waiter.val.holder);
+            return out;
+        } else {
+            return out;
+        }
+    }
+
     public constructor(onEmpty?: () => void) {
         this.onEmpty = onEmpty || (() => {});
     }
@@ -189,6 +227,23 @@ export class LockHolder {
             }
         } else {
             // We haven't reached the front of the queue.
+            if (resource.exclusiveHolder == undefined && !resource.holders.isEmpty()) {
+                // There are only shared holders.
+                if (ticket.mode == LockMode.EXCLUSIVE) {
+                    const [first] = next(resource.holders);
+                    const [second] = next(resource.holders, first);
+                    if (first == this && second == undefined) {
+                        // We're the sole shared holder. Skip ahead and upgrade.
+                        // While not fair, we'd get an undetected deadlock otherwise.
+                        assert(resource.waiting.get(this)).pop();
+                        resource.waiting.delete(this);
+                        this.waiting = undefined;
+                        waitingFor.delete(this);
+                        resource.exclusiveHolder = this;
+                        return true;
+                    }
+                }
+            }
             return false;
         }
     }
