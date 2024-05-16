@@ -1,7 +1,10 @@
 import { Deque, DequeNode } from "../Deque";
+import { workerYield } from "./txWorkerApi";
 
 /** The set of all resources that holders are waiting for */
 export const waitingFor = new LuaMap<LockHolder, LockedResource>();
+
+export const DEADLOCK_CHECK_SECONDS = 3;
 
 /**
  * Finds and breaks deadlocks.
@@ -27,7 +30,7 @@ export function breakDeadlocks(): LuaSet<LockHolder> {
 
         open.add(v);
         for (const child of assert(wfCopy.get(v)).holders) {
-            dfs(child);
+            if (child != v) { dfs(child); }
             if (!wfCopy.has(v)) { return; }
         }
         closed.add(v);
@@ -87,25 +90,35 @@ export class LockHolder {
     /** The resource the holder is currently waiting on, if any. */
     private waiting?: LockedResource;
 
-    /** Acquires a resource in exclusive mode. */
+    /** Acquires a resource in exclusive mode. No-op if already held. */
     public acquireExclusive(resource: LockedResource) {
+        if (resource.exclusiveHolder == this) { return; }
         assert(!this.waiting);
         this.waiting = resource;
+        const w = resource.queue.pushBack({ holder: this, mode: LockMode.EXCLUSIVE });
+        resource.waiting.set(this, w);
         waitingFor.set(this, resource);
-        resource.queue.pushBack({ holder: this, mode: LockMode.EXCLUSIVE });
-        while (!this.tryAcquire()) { coroutine.yield(); }
+        while (!this.tryAcquire()) {
+            const response = workerYield({ ty: "yield_lock" });
+            assert(response.ty == "resume_lock");
+        }
     }
 
-    /** Acquires a resource in shared mode. */
+    /** Acquires a resource in shared mode. No-op if already held. */
     public acquireShared(resource: LockedResource) {
+        if (resource.holders.has(this)) { return; }
         assert(!this.waiting);
         this.waiting = resource;
+        const w = resource.queue.pushBack({ holder: this, mode: LockMode.SHARED });
+        resource.waiting.set(this, w);
         waitingFor.set(this, resource);
-        resource.queue.pushBack({ holder: this, mode: LockMode.SHARED });
-        while (!this.tryAcquire()) { coroutine.yield; }
+        while (!this.tryAcquire()) {
+            const response = workerYield({ ty: "yield_lock" });
+            assert(response.ty == "resume_lock");
+        }
     }
 
-    /** Tries to acquire a waited for resource. */
+    /** Tries to acquire a waited-for resource. */
     private tryAcquire(): boolean {
         const resource = assert(this.waiting);
         const ticket = assert(resource.queue.first()).val;
@@ -116,6 +129,7 @@ export class LockHolder {
                 if (resource.exclusiveHolder == this) {
                     // We already hold the resource. No-op.
                     resource.queue.popFront();
+                    resource.waiting.delete(this);
                     this.waiting = undefined;
                     waitingFor.delete(this);
                     return true;
@@ -128,6 +142,7 @@ export class LockHolder {
                 if (ticket.mode == LockMode.SHARED) {
                     // Share the resource with them.
                     resource.queue.popFront();
+                    resource.waiting.delete(this);
                     this.waiting = undefined;
                     waitingFor.delete(this);
                     this.held.add(resource);
@@ -139,6 +154,7 @@ export class LockHolder {
                     if (first == this && second == undefined) {
                         // We're the sole shared holder. Upgrade the lock.
                         resource.queue.popFront();
+                        resource.waiting.delete(this);
                         this.waiting = undefined;
                         waitingFor.delete(this);
                         resource.exclusiveHolder = this;
@@ -153,6 +169,7 @@ export class LockHolder {
                 if (ticket.mode == LockMode.EXCLUSIVE) {
                     // Acquire in exclusive mode.
                     resource.queue.popFront();
+                    resource.waiting.delete(this);
                     this.waiting = undefined;
                     waitingFor.delete(this);
                     this.held.add(resource);
@@ -162,6 +179,7 @@ export class LockHolder {
                 } else {
                     // Acquire in shared mode.
                     resource.queue.popFront();
+                    resource.waiting.delete(this);
                     this.waiting = undefined;
                     waitingFor.delete(this);
                     this.held.add(resource);
@@ -179,6 +197,7 @@ export class LockHolder {
     public abort() {
         const resource = assert(this.waiting);
         assert(resource.waiting.get(this)).pop();
+        resource.waiting.delete(this);
         this.waiting = undefined;
         waitingFor.delete(this);
         resource.emptyCheck();
