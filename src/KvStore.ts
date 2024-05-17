@@ -185,6 +185,14 @@ export class DirKvStore {
         return this.indexedColl.getQuota();
     }
 
+    public getConfig(key: string): string | undefined {
+        return this.indexedColl.getConfig(key);
+    }
+
+    public setConfig(key: string, value?: string): void {
+        return this.indexedColl.setConfig(key, value);
+    }
+
     public open() {
         this.kvs = new GenericKvStore(this.indexedColl);
     }

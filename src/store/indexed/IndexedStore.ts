@@ -102,6 +102,14 @@ export class IndexedCollection implements IStoreCollection<IndexedPage, IndexedS
     public getQuota(): number {
         return this.state.totalQuota;
     }
+
+    public getConfig(key: string): string | undefined {
+        return this.state.getConfig(key);
+    }
+
+    public setConfig(key: string, value?: string): void {
+        return this.state.setConfig(key, value);
+    }
 }
 
 class IndexedStore implements IPageStore<IndexedPage> {
@@ -269,6 +277,9 @@ enum Prefix {
 
     /** Asks for a page to be deleted on recovery if the index doesn't point to it. */
     DEL = 3,
+
+    /** Stores other configuration. */
+    CONFIG = 4,
 }
 
 const INDEX_KEY_FMT = ">B" + NAMESPACE_FMT + PAGE_FMT;
@@ -657,6 +668,21 @@ class IndexState {
 
         this.totalQuota = this.totalQuota - substore.quota + quota;
         substore.quota = quota;
+    }
+
+    /** Gets a config from the index DB. */
+    public getConfig(key: string): string | undefined {
+        key = string.char(Prefix.CONFIG) + key;
+        const [_, v] = this.config.btree.search(this.cl, key);
+        if (v?.key != key) { return; }
+        return v.value;
+    }
+
+    /** Sets a config to the index DB. */
+    public setConfig(key: string, value?: string): void {
+        key = string.char(Prefix.CONFIG) + key;
+        this.cl.doAct(0 as TxId, <SetEntryAct>{ key, value });
+        this.cl.commit(0 as TxId);
     }
 
     /** Flushes and closes the log. */
