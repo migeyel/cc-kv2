@@ -6,6 +6,7 @@ import { KvLockManager } from "./KvLockManager";
 import * as expect from "cc/expect";
 import { LockedResource, LockHolder } from "./Lock";
 import { SetEntryAct, SetEntryConfig } from "../SetEntryConfig";
+import { KvPair } from "../btree/Node";
 
 export class Transaction {
     private id: TxId;
@@ -13,8 +14,9 @@ export class Transaction {
     private config: SetEntryConfig;
     private kvlm: KvLockManager;
     private txsMap: LuaTable<TxId, Transaction>;
-    private holder = new LockHolder();
     private active = true;
+
+    public readonly holder = new LockHolder();
 
     public constructor(
         id: TxId,
@@ -36,7 +38,6 @@ export class Transaction {
      * @returns The value matching the key.
      */
     public get(key: string): string | undefined {
-        expect(1, key, "string");
         assert(this.active, "can't operate on an inactive transaction");
         this.kvlm.acquireGet(key, this.holder);
         const [_, pair] = this.config.btree.search(this.cl, key);
@@ -49,7 +50,6 @@ export class Transaction {
      * @returns A key-value pair coming after the given key, if any.
      */
     public next(key?: string): LuaMultiReturn<[string, string] | []> {
-        expect(1, key, "string", "nil");
         assert(this.active, "can't operate on an inactive transaction");
         const nextSmallestKey = key ? key + "\0" : "";
         this.kvlm.acquireNext(this.cl, nextSmallestKey, this.holder);
@@ -59,6 +59,16 @@ export class Transaction {
         } else {
             return $multi();
         }
+    }
+
+    /** Finds the previous and next key-value pairs from a key. */
+    public find(
+        key: string,
+    ): LuaMultiReturn<[KvPair | undefined, KvPair | undefined]> {
+        assert(this.active, "can't operate on an inactive transaction");
+        this.kvlm.acquireNext(this.cl, key, this.holder);
+        this.kvlm.acquirePrev(this.cl, key, this.holder);
+        return this.config.btree.search(this.cl, key);
     }
 
     /**
@@ -84,8 +94,6 @@ export class Transaction {
      * @param value - The value to set to.
      */
     public set(key: string, value: string): void {
-        expect(1, key, "string");
-        expect(2, value, "string");
         assert(this.active, "can't operate on an inactive transaction");
         this.kvlm.acquireSet(this.cl, key, this.holder);
         this.cl.doAct(this.id, <SetEntryAct>{ key, value });
@@ -96,7 +104,6 @@ export class Transaction {
      * @param key - The key to delete.
      */
     public delete(key: string): void {
-        expect(1, key, "string");
         assert(this.active, "can't operate on an inactive transaction");
         this.kvlm.acquireDelete(this.cl, key, this.holder);
         this.cl.doAct(this.id, <SetEntryAct>{ key });

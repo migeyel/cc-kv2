@@ -120,4 +120,20 @@ export class KvLockManager {
             holder.acquireShared(this.getContent(key));
         }
     }
+
+    /** Acquires locks for getting the previous key and value. */
+    public acquirePrev(cl: TxCollection, key: string, holder: LockHolder): void {
+        const [prev] = this.btree.search(cl, key);
+        if (!prev) {
+            // Previous key doesn't exist, we need to acquire fence locks.
+            this.sharedFence(cl, key, holder);
+
+            // Now we can carry on the search and lock the content.
+            const [cPrev] = this.btree.search(cl, key);
+            if (cPrev) { holder.acquireShared(this.getContent(cPrev.key)); }
+        } else {
+            // Key exists so lock the content.
+            holder.acquireShared(this.getContent(key));
+        }
+    }
 }
