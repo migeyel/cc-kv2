@@ -127,7 +127,7 @@ export class DirKvStore {
         }
 
         const loader = (desc: string): DirStoreCollection => {
-            const [dir] = assert(this.dataDirs.get(desc), "directory not found: desc");
+            const [dir] = assert(this.dataDirs.get(desc), "not found: " + desc);
             return new DirStoreCollection(dir, 4096 as PageSize);
         };
 
