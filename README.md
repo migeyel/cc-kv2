@@ -1,3 +1,7 @@
+Hi. The code is undergoing some major changes and doesn't really work right now. Go
+check out [cb7a85a](https://github.com/migeyel/cc-kv2/tree/cb7a85a723de108976db95cbad3e89209382acf7)
+if you want code that works.
+
 # `cc-kv2`
 `cc-kv2` is a WIP transactional ordered key-value store running on ComputerCraft
 and craftos-pc.
