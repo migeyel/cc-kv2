@@ -12,7 +12,6 @@ let state = sha256(table.concat([
     math.random(2 ** 24),
     tostring({}),
     tostring({}),
-    fs.getFreeSpace("/"),
 ], "|"));
 
 // Mix tick timings in.
@@ -30,7 +29,7 @@ let state = sha256(table.concat([
     state = sha256(state + block);
 }
 
-function rand32(): string {
+export function rand32(): string {
     state = sha256(state + "1");
     return sha256(state + "0");
 }
@@ -47,13 +46,20 @@ export function uid() {
     return string.pack(">I4c28", uidCounter++, uidSuffix);
 }
 
+const FMT = "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x";
+
 /** Generates a new UUID4. */
 export function uuid4() {
     const bytes = string.byte(rand32(), 1, -1);
     bytes[6] = bytes[7] & 0x0f | 0x40;
     bytes[8] = bytes[8] & 0x3f | 0x80;
-    return string.format(
-        string.gsub("xx-x-x-x-xxx", "x", "%%02x%%02x")[0],
-        ...bytes,
-    );
+    return string.format(FMT, ...bytes);
+}
+
+const PAT =
+    "^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$";
+
+/** Returns whether a string is a valid UUID4. */
+export function isUuid4(s: string): boolean {
+    return string.find(s, PAT)[0] != undefined && s == string.lower(s);
 }
