@@ -16,10 +16,10 @@ import {
     TxId,
     TxCollection,
 } from "./txStore/LogStore";
-import { KvLockManager } from "./lock/KvLockManager";
+import { KvLockManager } from "./transaction/KvLockManager";
 import DirLock from "./DirLock";
 import { SetEntryConfig } from "./SetEntryConfig";
-import { Transaction } from "./Transaction";
+import { Transaction } from "./transaction/Transaction";
 import { IndexedCollection } from "./store/indexed/IndexedStore";
 
 enum Namespaces {
