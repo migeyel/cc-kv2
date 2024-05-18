@@ -1,5 +1,5 @@
 import { DirKvStore } from "./KvStore";
-import { isUuid4, uuid4 } from "./uid";
+import { isUuid4, uuid4 } from "./common/uid";
 import { TxWorker } from "./transaction/TxWorker";
 import { isRequest, Request, Response } from "./apis/userApi";
 import { WorkerResume, WorkerYield } from "./transaction/txWorkerApi";
@@ -9,7 +9,7 @@ import {
     LockedResource,
     LockHolder,
 } from "./transaction/Lock";
-import { Connection, ConnectionManager } from "./connection/connection";
+import { Connection, ConnectionManager } from "./common/connection/connection";
 import { pretty_print } from "cc.pretty";
 
 export function main(path: string) {
