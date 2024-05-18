@@ -1,4 +1,4 @@
-import { Request, Response, ResponseError, ResponseOp } from "../../apis/userApi";
+import { Request, Response, ResponseError, ResponseOp } from "../../common/apis/userApi";
 import { Connection } from "../../common/connection/connection";
 import { Deque } from "../../common/Deque";
 import { Transaction } from "./Transaction";

@@ -1,7 +1,7 @@
 import { DirKvStore } from "./core/KvStore";
 import { isUuid4, uuid4 } from "./common/uid";
 import { TxWorker } from "./core/transaction/TxWorker";
-import { isRequest, Request, Response } from "./apis/userApi";
+import { isRequest, Request, Response } from "./common/apis/userApi";
 import { WorkerResume, WorkerYield } from "./core/transaction/txWorkerApi";
 import {
     breakDeadlocks,
