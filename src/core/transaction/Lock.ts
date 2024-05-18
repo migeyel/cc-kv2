@@ -1,5 +1,5 @@
 import { Deque, DequeNode } from "../../common/Deque";
-import { workerYield } from "./txWorkerApi";
+import { workerYield } from "../../server/txWorkerApi";
 
 /** The set of all resources that holders are waiting for */
 export const waitingFor = new LuaMap<LockHolder, LockedResource>();

@@ -1,4 +1,4 @@
-import { LockedResource } from "./Lock";
+import { LockedResource } from "../core/transaction/Lock";
 
 /** Signals that the pending lock may have been released. */
 export type ResumeLock = {

@@ -1,15 +1,15 @@
-import { DirKvStore } from "./core/KvStore";
-import { isUuid4, uuid4 } from "./common/uid";
-import { TxWorker } from "./core/transaction/TxWorker";
-import { isRequest, Request, Response } from "./common/apis/userApi";
-import { WorkerResume, WorkerYield } from "./core/transaction/txWorkerApi";
+import { DirKvStore } from "../core/KvStore";
+import { isUuid4, uuid4 } from "../common/uid";
+import { TxWorker } from "./TxWorker";
+import { isRequest, Request, Response } from "../common/apis/userApi";
+import { WorkerResume, WorkerYield } from "./txWorkerApi";
 import {
     breakDeadlocks,
     DEADLOCK_CHECK_SECONDS,
     LockedResource,
     LockHolder,
-} from "./core/transaction/Lock";
-import { Connection, ConnectionManager } from "./common/connection/connection";
+} from "../core/transaction/Lock";
+import { Connection, ConnectionManager } from "../common/connection/connection";
 import { pretty_print } from "cc.pretty";
 
 export function main(path: string) {
