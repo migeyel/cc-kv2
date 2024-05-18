@@ -11,5 +11,5 @@
         "luaTarget": "CC-5.2",
         "luaLibImport": "require-minimal",
     },
-    "include": [ "./src/**/*.ts" ]
+    "include": [ "./src/**/*.ts", "./test/**/*.ts" ]
 }
