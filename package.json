@@ -1,6 +1,6 @@
 {
   "name": "cc-tstl-template",
-  "version": "1.102.2",
+  "version": "1.102.3",
   "description": "Template project for ComputerCraft programs written in TypeScript.",
   "main": "main.ts",
   "scripts": {
@@ -8,13 +8,13 @@
     "build": "tstl -p ./tsconfig.build.json"
   },
   "devDependencies": {
-    "@jackmacwindows/cc-types": "^1.0.0",
+    "typescript": "^5.1.0",
+    "@jackmacwindows/lua-types": "^2.13.2",
+    "@jackmacwindows/typescript-to-lua": "^1.22.0",
     "@jackmacwindows/craftos-types": "^1.1.1",
-    "@jackmacwindows/lua-types": "^2.13.1",
+    "@jackmacwindows/cc-types": "^1.0.0",
     "@typescript-eslint/eslint-plugin": "^6.6.0",
-    "eslint": "^8.48.0",
-    "typescript": "^5.2.2",
-    "typescript-to-lua": "^1.19.0"
+    "eslint": "^8.48.0"
   },
   "author": "JackMacWindows",
   "license": "MIT"
