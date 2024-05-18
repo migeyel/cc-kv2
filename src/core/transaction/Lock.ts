@@ -1,4 +1,4 @@
-import { Deque, DequeNode } from "../common/Deque";
+import { Deque, DequeNode } from "../../common/Deque";
 import { workerYield } from "./txWorkerApi";
 
 /** The set of all resources that holders are waiting for */

@@ -1,5 +1,5 @@
 import * as expect from "cc/expect";
-import { KvStore } from "./KvStore";
+import { KvStore } from "./core/KvStore";
 import { breakDeadlocks } from "./lock/Lock";
 
 /**

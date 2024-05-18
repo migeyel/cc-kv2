@@ -1,4 +1,4 @@
-import { Deque, DequeNode } from "./common/Deque";
+import { Deque, DequeNode } from "../common/Deque";
 
 export interface ICacheable {
     /** Performs side-effects of this object being evicted from the cache. */
