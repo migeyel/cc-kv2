@@ -45,7 +45,7 @@ class TxManager {
 
     private transactionsByConnection = new LuaMap<Connection, LuaSet<TxWorker>>();
 
-    private connectionManager = new ConnectionManager("kv2");
+    private connectionManager = new ConnectionManager();
 
     private db: DirKvStore;
 
@@ -180,10 +180,11 @@ class TxManager {
                 const [sender, msg] = rednet.receive("kv2", bkTimer);
                 pretty_print(msg);
                 if (sender) {
-                    const transportMsg = this.connectionManager.handleRednetMessage(
-                        sender,
+                    const transportMsg = this.connectionManager.onMessage(
                         msg,
-                        "kv2",
+                        (reply) => {
+                            rednet.send(sender, reply, "kv2");
+                        },
                     );
 
                     if (transportMsg) {

@@ -12,14 +12,8 @@ assert(ECHO_FREQ_SECONDS < EXPIRE_SECONDS);
 
 /** An ongoing connection between kv2 and a client. */
 export class Connection {
-    /**
-     * The computer ID of the client, or a gateway that is forwarding requests. Outgoing
-     * packets will be sent to this computer.
-     */
-    private computerId: number;
-
-    /** The Rednet protocol we are transmitting under. */
-    private protocol: string;
+    /** A function to reply to the connection's peer. */
+    private reply: (reply: any) => void;
 
     /** A unique ID describing this connection. */
     public readonly connectionId: string;
@@ -43,14 +37,12 @@ export class Connection {
 
     public constructor(
         state: ConnectionState,
-        computerId: number,
-        protocol: string,
         connectionId: string,
+        reply: (reply: any) => void,
     ) {
         this.state = state;
-        this.computerId = computerId;
-        this.protocol = protocol;
         this.connectionId = connectionId;
+        this.reply = reply;
         this.lastRecv = os.clock();
         this.state.add(this);
         this.state.onActivity(this);
@@ -77,15 +69,13 @@ export class Connection {
                 return;
             }
             if (message.ty == "echo.request") {
-                rednet.send(
-                    this.computerId,
+                this.reply(
                     <connectionApi.EchoResponse>{
                         tag: connectionApi.TAG,
                         ty: "echo.response",
                         connectionId: this.connectionId,
                         seq: this.sendSeq++,
                     },
-                    this.protocol,
                 );
             } else if (message.ty == "echo.response") {
                 // Nothing left to do.
@@ -103,23 +93,20 @@ export class Connection {
     /** Sends an echo request. No-op on closed connections. */
     public requestEcho() {
         if (!this.isOpen) { return; }
-        rednet.send(
-            this.computerId,
+        this.reply(
             <connectionApi.EchoRequest>{
                 tag: connectionApi.TAG,
                 ty: "echo.request",
                 connectionId: this.connectionId,
                 seq: this.sendSeq++,
             },
-            this.protocol,
         );
     }
 
     /** Sends a message. No-op on closed connections. */
     public send(message: any) {
         if (!this.isOpen) { return; }
-        rednet.send(
-            this.computerId,
+        this.reply(
             <connectionApi.TransportMessage>{
                 tag: connectionApi.TAG,
                 ty: "transport",
@@ -127,7 +114,6 @@ export class Connection {
                 payload: message,
                 seq: this.sendSeq++,
             },
-            this.protocol,
         );
     }
 
@@ -136,14 +122,12 @@ export class Connection {
         if (!this.isOpen) { return; }
         this.isOpen = false;
         this.state.delete(this);
-        rednet.send(
-            this.computerId,
+        this.reply(
             <connectionApi.Goodbye>{
                 tag: connectionApi.TAG,
                 ty: "goodbye",
                 connectionId: this.connectionId,
             },
-            this.protocol,
         );
         if (this.closeHook) { this.closeHook(); }
     }
@@ -157,37 +141,28 @@ export type ConnectionTransportMessage = {
 
 /** Manages all connections. */
 export class ConnectionManager {
-    /** The Rednet protocol we are transmitting under. */
-    private protocol: string;
-
     private state = new ConnectionState();
 
-    public constructor(protocol: string) {
-        this.protocol = protocol;
-    }
-
     /**
-     * Receives rednet messages and transforms them into ConnectionTransportMessages
-     * when appropriate.
+     * Receives messages and transforms them into ConnectionTransportMessages when
+     * appropriate.
      */
-    public handleRednetMessage(
-        sender: number,
+    public onMessage(
         message: any,
-        protocol: string,
+        reply: (reply: any) => void,
     ): ConnectionTransportMessage | undefined {
-        if (protocol != this.protocol) { return; }
         if (!connectionApi.isMessage(message)) { return; }
         if (message.ty == "hello.request") {
             const clientRandom = message.clientRandom;
             const serverRandom = rand32();
             const connId = connectionApi.mkConnectionId(clientRandom, serverRandom);
-            new Connection(this.state, sender, protocol, connId);
-            rednet.send(sender, <connectionApi.HelloResponse>{
+            new Connection(this.state, connId, reply);
+            reply(<connectionApi.HelloResponse>{
                 tag: connectionApi.TAG,
                 ty: "hello.response",
                 clientRandom,
                 serverRandom,
-            }, protocol);
+            });
         } else if (message.ty == "hello.response") {
             // Not meant for us since we don't send hello requests out.
         } else if (message.ty == "goodbye") {
