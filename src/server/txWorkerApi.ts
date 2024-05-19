@@ -61,25 +61,3 @@ export type WorkerYield =
     | DoneOk
     | DoneAborted
     | DoneErr;
-
-/** Thrown by a waiting transaction when it encounters a ResumeAbort. */
-export class AbortedError extends Error {
-    public constructor(message: string) {
-        super(message);
-    }
-}
-
-/**
- * Yields a value to the transaction manager and gets something back.
- * @param val The value to yield.
- * @returns The response.
- * @throws An instance of AbortedError if the response is a ResumeAbort.
- */
-export function workerYield(val: WorkerYield): WorkerResume {
-    const [out] = coroutine.yield(val);
-    assert(type(out) == "table");
-    assert(type(out.ty) == "string");
-    const wr = out as WorkerResume;
-    if (wr.ty == "resume_abort") { throw new AbortedError(wr.message); }
-    return wr;
-}

@@ -1,13 +1,12 @@
 import { Request, Response, ResponseError, ResponseOp } from "../common/apis/userApi";
 import { Connection } from "../common/connection/connection";
 import { Deque } from "../common/Deque";
+import { LOCK_RELEASED_EVENT } from "../core/transaction/Lock";
 import { Transaction } from "../core/transaction/Transaction";
 import {
-    AbortedError,
     DoneOk,
     WorkerDone,
     WorkerResume,
-    workerYield,
     WorkerYield,
 } from "./txWorkerApi";
 
@@ -45,7 +44,10 @@ export class TxWorker {
         // Handle the first request. Can either be a begin statement or an
         // auto-commit single operation.
         {
-            while (this.reqQueue.isEmpty()) { workerYield({ ty: "yield_operation" }); }
+            while (this.reqQueue.isEmpty()) {
+                coroutine.yield({ ty: "yield_operation" });
+            }
+
             // We let the request stay on the queue while we process it so it can be
             // used for sending a response after an abort.
             const reqNode = assert(this.reqQueue.first());
@@ -82,7 +84,10 @@ export class TxWorker {
         }
 
         while (true) {
-            while (this.reqQueue.isEmpty()) { workerYield({ ty: "yield_operation" }); }
+            while (this.reqQueue.isEmpty()) {
+                coroutine.yield({ ty: "yield_operation" });
+            }
+
             // Same reasoning as above.
             const reqNode = assert(this.reqQueue.first());
             const req = reqNode.val;
@@ -138,46 +143,58 @@ export class TxWorker {
         if (ok) {
             return out;
         } else {
-            const err = out as any; // pcall types are wrong.
-            if (err instanceof AbortedError) {
-                // We know that we errored in a workerYield call, which only gets called
-                // when it is safe to abort and rollback.
-                this.errorBulkReply({
-                    ok: false,
-                    message: "Transaction aborted: " + err.message,
-                    aborted: this.uuid,
-                });
-                return <WorkerDone>{
-                    ty: "done_aborted",
-                    releasedLocks: this.transaction.rollback(),
-                    message: err.message,
-                };
-            } else {
-                // We don't know anything about how the inner code errored. The state
-                // may as well be complete garbage at this point.
-                this.errorBulkReply({
-                    ok: false,
-                    message: "Unexpected error: " + tostring(err),
-                });
-                return <WorkerDone>{
-                    ty: "done_err",
-                    message: tostring(err),
-                };
-            }
+            this.errorBulkReply({
+                ok: false,
+                message: "Unexpected error: " + tostring(out),
+            });
+
+            return <WorkerDone>{
+                ty: "done_err",
+                message: tostring(out),
+            };
         }
     }
 
     public resume(resume: WorkerResume): WorkerYield {
-        const [ok, yvalue] = coroutine.resume(this.thread, resume);
-        assert(ok, yvalue);
+        if (resume.ty == "resume_operation" || resume.ty == "resume_lock") {
+            // Resume as normal.
+            // Lock code doesn't care about the yield's return value, so we can give
+            // it the WorkerResume.
+            const [ok, yvalue] = coroutine.resume(this.thread, resume);
+            assert(ok, yvalue);
 
-        this.lastYield = yvalue;
+            if (type(yvalue) == "table") {
+                // Yielded/returned a direct WorkerYield value, which is allowed.
+                this.lastYield = yvalue;
+            } else if (yvalue == LOCK_RELEASED_EVENT) {
+                // Lock code yielded for a LOCK_RELEASED_EVENT.
+                this.lastYield = { ty: "yield_lock" };
+            } else {
+                // Yielded for an unknown event, which we forbid so as to not break db
+                // code atomicity invariants.
+                const msg = "transaction worker yielded an unexpected value";
+                error(debug.traceback(this.thread, msg));
+            }
+        } else if (resume.ty == "resume_abort") {
+            // Cancel running the coroutine and abort.
+            // This is safe because we only allow the coroutine to yield on places where
+            // it can be cancelled, and where the abort code can run safely.
+            this.errorBulkReply({
+                ok: false,
+                message: "Transaction aborted: " + resume.message,
+                aborted: this.uuid,
+            });
 
-        if (type(yvalue) != "table") {
-            error(debug.traceback(this.thread, "tx worker yielded a non-table value"));
+            this.lastYield = {
+                ty: "done_aborted",
+                message: resume.message,
+                releasedLocks: this.transaction.rollback(),
+            };
+        } else {
+            resume satisfies never;
         }
 
-        return yvalue;
+        return this.lastYield;
     }
 
     public constructor(

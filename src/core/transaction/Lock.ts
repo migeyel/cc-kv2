@@ -1,10 +1,11 @@
 import { Deque, DequeNode } from "../../common/Deque";
-import { workerYield } from "../../server/txWorkerApi";
 
 /** The set of all resources that holders are waiting for */
 export const waitingFor = new LuaMap<LockHolder, LockedResource>();
 
 export const DEADLOCK_CHECK_SECONDS = 3;
+
+export const LOCK_RELEASED_EVENT = "kv2_lock_released";
 
 /**
  * Finds and breaks deadlocks.
@@ -128,7 +129,13 @@ export class LockHolder {
     /** The resource the holder is currently waiting on, if any. */
     private waiting?: LockedResource;
 
-    /** Acquires a resource in exclusive mode. No-op if already held. */
+    /**
+     * Acquires a resource in exclusive mode. No-op if already held.
+     *
+     * This method yields for a {@link LOCK_RELEASED_EVENT} if the resource is being
+     * held by another thread. The caller can safely not resume the coroutine and abort
+     * the wait by calling either {@link abort} or {@link releaseAll} instead.
+     */
     public acquireExclusive(resource: LockedResource) {
         if (resource.exclusiveHolder == this) { return; }
         assert(!this.waiting);
@@ -136,13 +143,16 @@ export class LockHolder {
         const w = resource.queue.pushBack({ holder: this, mode: LockMode.EXCLUSIVE });
         resource.waiting.set(this, w);
         waitingFor.set(this, resource);
-        while (!this.tryAcquire()) {
-            const response = workerYield({ ty: "yield_lock" });
-            assert(response.ty == "resume_lock");
-        }
+        while (!this.tryAcquire()) { os.pullEvent(LOCK_RELEASED_EVENT); }
     }
 
-    /** Acquires a resource in shared mode. No-op if already held. */
+    /**
+     * Acquires a resource in shared mode. No-op if already held.
+     *
+     * This method yields for a {@link LOCK_RELEASED_EVENT} if the resource is being
+     * held by another thread. The caller can safely not resume the coroutine and abort
+     * the wait by calling either {@link abort} or {@link releaseAll} instead.
+     */
     public acquireShared(resource: LockedResource) {
         if (resource.holders.has(this)) { return; }
         assert(!this.waiting);
@@ -150,10 +160,7 @@ export class LockHolder {
         const w = resource.queue.pushBack({ holder: this, mode: LockMode.SHARED });
         resource.waiting.set(this, w);
         waitingFor.set(this, resource);
-        while (!this.tryAcquire()) {
-            const response = workerYield({ ty: "yield_lock" });
-            assert(response.ty == "resume_lock");
-        }
+        while (!this.tryAcquire()) { os.pullEvent(LOCK_RELEASED_EVENT); }
     }
 
     /** Tries to acquire a waited-for resource. */
@@ -276,7 +283,6 @@ export class LockHolder {
         const out = new LuaSet<LockedResource>();
 
         if (this.waiting) {
-            out.add(this.waiting);
             this.abort();
         }
 
