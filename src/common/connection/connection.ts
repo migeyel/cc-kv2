@@ -143,6 +143,10 @@ export type ConnectionTransportMessage = {
 export class ConnectionManager {
     private state = new ConnectionState();
 
+    public closeAll() {
+        this.state.closeAll();
+    }
+
     /**
      * Receives messages and transforms them into ConnectionTransportMessages when
      * appropriate.
@@ -277,5 +281,10 @@ export class ConnectionState {
             if (first.val.lastRecv > os.clock()) { return; }
             first.val.close();
         }
+    }
+
+    /** Closes all connections. */
+    public closeAll() {
+        for (const [_, c] of this.connectionsById) { c.close(); }
     }
 }

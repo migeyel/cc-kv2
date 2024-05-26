@@ -49,6 +49,8 @@ class TxManager {
 
     private db: DirKvStore;
 
+    private isUp = false;
+
     public constructor(db: DirKvStore) {
         this.db = db;
     }
@@ -147,7 +149,21 @@ class TxManager {
         this.transactionsByConnection.delete(conn);
     }
 
-    public handleRequest(conn: Connection, req: Request) {
+    public startup() {
+        this.db.open();
+        this.isUp = true;
+    }
+
+    public shutdown() {
+        for (const [_, txw] of this.transactionsByUuid) {
+            this.abortTransaction(txw, "db is shutting down");
+        }
+        this.isUp = false;
+        this.connectionManager.closeAll();
+        this.db.close();
+    }
+
+    private handleRequest(conn: Connection, req: Request) {
         const op = req.op;
         const ty = op.ty;
         if (ty == "begin") {
@@ -178,8 +194,7 @@ class TxManager {
             while (true) {
                 const bkTimer = this.connectionManager.doBookkeeping();
                 const [sender, msg] = rednet.receive("kv2", bkTimer);
-                pretty_print(msg);
-                if (sender) {
+                if (sender && this.isUp) {
                     const transportMsg = this.connectionManager.onMessage(
                         msg,
                         (reply) => {
