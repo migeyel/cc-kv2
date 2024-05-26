@@ -44,6 +44,7 @@ class GenericKvStore {
     private kvlm: KvLockManager;
     private log: RecordLog;
 
+    private numTransactions = 0;
     private transactions = new LuaTable<TxId, Transaction>();
 
     public constructor(coll: IStoreCollection<IPage, IPageStore<IPage>>) {
@@ -90,11 +91,13 @@ class GenericKvStore {
     /** Rolls back all active transactions and closes the database. */
     public close() {
         for (const [_, v] of this.transactions) { v.rollback(); }
+        this.numTransactions = 0;
         this.log.close();
     }
 
     /** Begins a new transaction. */
     public begin(): Transaction {
+        this.numTransactions += 1;
         const max = this.transactions.length();
         let txId = math.random(0, max) as TxId;
         if (this.transactions.has(txId)) { txId = max + 1 as TxId; }
@@ -104,7 +107,10 @@ class GenericKvStore {
             this.cl,
             this.config,
             this.kvlm,
-            this.transactions,
+            () => {
+                this.transactions.delete(txId);
+                this.numTransactions--;
+            },
         );
 
         this.transactions.set(txId, out);
@@ -163,6 +169,12 @@ export class DirKvStore {
     public delDataDir(dir: string) {
         this.indexedColl.delSubstore(this.getName(dir));
         fs.delete(dir);
+    }
+
+    public listDataDirs(): string[] {
+        const out = [];
+        for (const [_, v] of this.dataDirs) { out.push(v); }
+        return out;
     }
 
     public setDataDirQuota(dir: string, quota: number) {

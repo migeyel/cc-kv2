@@ -13,7 +13,7 @@ export class Transaction {
     private cl: TxCollection;
     private config: SetEntryConfig;
     private kvlm: KvLockManager;
-    private txsMap: LuaTable<TxId, Transaction>;
+    private onClose: () => void;
     private active = true;
 
     public readonly holder = new LockHolder();
@@ -23,13 +23,13 @@ export class Transaction {
         cl: TxCollection,
         config: SetEntryConfig,
         kvlm: KvLockManager,
-        txsMap: LuaTable<TxId, Transaction>,
+        onClose: () => void,
     ) {
         this.id = id;
         this.cl = cl;
         this.config = config;
         this.kvlm = kvlm;
-        this.txsMap = txsMap;
+        this.onClose = onClose;
     }
 
     /**
@@ -118,7 +118,7 @@ export class Transaction {
         this.cl.commit(this.id);
         const out = this.holder.releaseAll();
         this.active = false;
-        this.txsMap.delete(this.id);
+        this.onClose();
         return out;
     }
 
@@ -131,7 +131,7 @@ export class Transaction {
         this.cl.rollback(this.id);
         const out = this.holder.releaseAll();
         this.active = false;
-        this.txsMap.delete(this.id);
+        this.onClose();
         return out;
     }
 }
