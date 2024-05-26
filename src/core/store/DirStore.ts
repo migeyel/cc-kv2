@@ -159,7 +159,7 @@ class DirPage implements IPage {
     private fileModPrefix: string;
 
     /** The currently open handle. */
-    private handle?: FileHandle;
+    private handle?: WriteFileHandle;
 
     public constructor(
         pageSize: PageSize,
