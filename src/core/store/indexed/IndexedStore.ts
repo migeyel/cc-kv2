@@ -45,7 +45,6 @@ export class IndexedCollection implements IStoreCollection<IndexedPage, IndexedS
     public readonly pageSize: PageSize;
 
     private state: IndexState;
-    private map = new ShMap<IndexedPage, IndexedStore>();
 
     public constructor(
         pageSize: PageSize,
@@ -61,9 +60,8 @@ export class IndexedCollection implements IStoreCollection<IndexedPage, IndexedS
     }
 
     public getStore(namespace: Namespace): IndexedStore {
-        return this.map.getStore(namespace, () => new IndexedStore(
+        return this.state.map.getStore(namespace, () => new IndexedStore(
             this.state,
-            this.map,
             this.pageSize,
             namespace,
         ));
@@ -117,22 +115,19 @@ class IndexedStore implements IPageStore<IndexedPage> {
     public readonly namespace: Namespace;
 
     private state: IndexState;
-    private map: ShMap<IndexedPage, IndexedStore>;
 
     public constructor(
         state: IndexState,
-        map: ShMap<IndexedPage, IndexedStore>,
         pageSize: PageSize,
         namespace: Namespace,
     ) {
         this.state = state;
-        this.map = map;
         this.pageSize = pageSize;
         this.namespace = namespace;
     }
 
     public getPage(pageNum: PageNum): IndexedPage {
-        return this.map.getPage(this.namespace, pageNum, () => new IndexedPage(
+        return this.state.map.getPage(this.namespace, pageNum, () => new IndexedPage(
             this.state,
             this.pageSize,
             this.namespace,
@@ -153,7 +148,7 @@ class IndexedPage implements IPage {
     private state: IndexState;
 
     /** Current substore page, if allocated. */
-    private page?: IPage;
+    public page?: IPage;
 
     public constructor(
         state: IndexState,
@@ -195,12 +190,7 @@ class IndexedPage implements IPage {
     }
 
     public move(substoreNum: SubstoreNum): void {
-        const substore = assert(this.state.substores.get(substoreNum));
-        const page = substore.collection
-            .getStore(this.namespace)
-            .getPage(this.pageNum);
         this.state.movePage(this.namespace, this.pageNum, substoreNum);
-        this.page = page;
     }
 
     public createOpen(): void {
@@ -308,6 +298,7 @@ class IndexState {
     public loader: SubstoreLoader;
     public totalQuota: number;
     public totalUsage: number;
+    public map = new ShMap<IndexedPage, IndexedStore>();
 
     public constructor(
         indexCollection: IStoreCollection<IPage, IPageStore<IPage>>,
@@ -575,6 +566,8 @@ class IndexState {
         // Delete the old copy.
         if (srcPage.canAppend()) { tgtPage.openAppend(); }
         srcPage.delete();
+        const page = this.map.tryGetPage(namespace, pageNum);
+        if (page) { page.page = tgtPage; }
     }
 
     /**
@@ -609,6 +602,7 @@ class IndexState {
         desc: string,
         quota: number,
     ) {
+        assert(quota >= 0);
         assert(!this.substores.has(substoreNum));
         assert(!this.invSubstores.has(desc));
 
@@ -628,6 +622,7 @@ class IndexState {
         });
 
         this.invSubstores.set(desc, substoreNum);
+        this.totalQuota += quota;
 
         if (0 < quota) { this.nonFullSubstores.add(substoreNum); }
     }
@@ -650,6 +645,7 @@ class IndexState {
         this.substores.delete(substoreNum);
         this.invSubstores.delete(substore.desc);
         this.nonFullSubstores.delete(substoreNum);
+        this.totalQuota -= substore.quota;
     }
 
     /**

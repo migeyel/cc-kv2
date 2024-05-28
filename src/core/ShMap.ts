@@ -16,6 +16,11 @@ export class ShMap<P, S> {
         return newOut;
     }
 
+    public tryGetPage(namespace: Namespace, pageNum: PageNum): P | undefined {
+        const key = string.pack(PAGE_KEY_FMT, namespace, pageNum);
+        return this.pages.get(key);
+    }
+
     public getPage(namespace: Namespace, pageNum: PageNum, fn: () => P): P {
         const key = string.pack(PAGE_KEY_FMT, namespace, pageNum);
         const out = this.pages.get(key);
