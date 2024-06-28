@@ -112,6 +112,7 @@ export class TxPage<T extends IObj<E>, E extends IEvent> implements ICacheable {
 
     public constructor(
         state: State,
+        namespace: Namespace,
         page: IPage,
         config: IConfig,
         cache: CacheMap<CacheKey, AnyTxPage>,
@@ -121,7 +122,7 @@ export class TxPage<T extends IObj<E>, E extends IEvent> implements ICacheable {
         this.page = page;
         this.config = config;
         this.cache = cache;
-        this.namespace = page.namespace;
+        this.namespace = namespace;
         this.pageNum = page.pageNum;
 
         const pageStr = this.page.read();
@@ -256,6 +257,7 @@ export class TxStore<
 > {
     private state: State;
     private store: IPageStore<IPage>;
+    private namespace: Namespace;
     private map: ShMap<AnyTxPage, TxStore<IObj<IEvent>, IEvent>>;
 
     public config: IConfig;
@@ -263,23 +265,26 @@ export class TxStore<
 
     public constructor(
         state: State,
+        namespace: Namespace,
         map: ShMap<AnyTxPage, TxStore<IObj<IEvent>, IEvent>>,
         store: IPageStore<IPage>,
         config: IConfig,
     ) {
         this.pageSize = store.pageSize;
         this.state = state;
+        this.namespace = namespace;
         this.map = map;
         this.store = store;
         this.config = config;
     }
 
     public getPage(pageNum: PageNum): TxPage<T, E> {
-        const key = cacheKey(this.store.namespace, pageNum);
-        return this.map.getPage(this.store.namespace, pageNum, () => {
+        const key = cacheKey(this.namespace, pageNum);
+        return this.map.getPage(this.namespace, pageNum, () => {
             return this.config.cache.getOr(key, () => {
                 return new TxPage(
                     this.state,
+                    this.namespace,
                     this.store.getPage(pageNum),
                     this.config,
                     this.config.cache,
@@ -329,6 +334,7 @@ export class TxCollection {
     ): TxStore<T, E> {
         return this.map.getStore(namespace, () => new TxStore(
             this.state,
+            namespace,
             this.map,
             this.collection.getStore(namespace),
             this.config,

@@ -112,8 +112,8 @@ export class IndexedCollection implements IStoreCollection<IndexedPage, IndexedS
 
 class IndexedStore implements IPageStore<IndexedPage> {
     public readonly pageSize: PageSize;
-    public readonly namespace: Namespace;
 
+    private namespace: Namespace;
     private state: IndexState;
 
     public constructor(
@@ -142,9 +142,9 @@ class IndexedStore implements IPageStore<IndexedPage> {
 
 class IndexedPage implements IPage {
     public readonly pageSize: PageSize;
-    public readonly namespace: Namespace;
     public readonly pageNum: PageNum;
 
+    private namespace: Namespace;
     private state: IndexState;
 
     /** Current substore page, if allocated. */

@@ -126,7 +126,6 @@ class DirPageStore implements IPageStore<DirPage> {
     public getPage(pageNum: PageNum): DirPage {
         return this.map.getPage(this.namespace, pageNum, () => new DirPage(
             this.pageSize,
-            this.namespace,
             this.filePrefix,
             this.modPrefix,
             pageNum,
@@ -148,8 +147,6 @@ class DirPageStore implements IPageStore<DirPage> {
 class DirPage implements IPage {
     public readonly pageSize: PageSize;
 
-    public readonly namespace: Namespace;
-
     public readonly pageNum: PageNum;
 
     /** The file path. */
@@ -163,13 +160,11 @@ class DirPage implements IPage {
 
     public constructor(
         pageSize: PageSize,
-        namespace: Namespace,
         filePrefix: string,
         modPrefix: string,
         pageNum: PageNum,
     ) {
         this.pageNum = pageNum;
-        this.namespace = namespace;
         this.pageSize = pageSize;
         this.filePath = filePrefix + tostring(pageNum);
         this.fileModPrefix = modPrefix + tostring(pageNum);
