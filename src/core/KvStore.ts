@@ -2,7 +2,7 @@ import { CacheMap } from "./CacheMap";
 import { ConfigEntryComponent } from "./ConfigPageComponent";
 import { PageAllocatorComponent } from "./PageAllocatorComponent";
 import { RecordLog } from "./RecordLog";
-import { BTreeComponent } from "./btree/Node";
+import { BTreeComponent, KvPair } from "./btree/Node";
 import { RecordsComponent } from "./records/Records";
 import { DirStoreCollection } from "./store/DirStore";
 import {
@@ -21,15 +21,29 @@ import DirLock from "./DirLock";
 import { SetEntryConfig } from "./SetEntryConfig";
 import { Transaction } from "./transaction/Transaction";
 import { IndexedCollection } from "./store/indexed/IndexedStore";
+import { CowCollection } from "./store/CowStore";
+import { MappedCollection } from "./store/MappedStore";
 
-enum Namespaces {
-    LOG,
-    CONFIG,
-    HEADERS,
-    PAGES,
-    LEAVES,
-    BRANCHES,
-}
+/** A store namespace assignment for a KV store. */
+type KvStoreNamespaces = {
+    /** Stores the WAL. */
+    log: Namespace,
+
+    /** Stores the config page. */
+    config: Namespace,
+
+    /** Stores the record header page. */
+    headers: Namespace,
+
+    /** Stores the record data pages. */
+    pages: Namespace,
+
+    /** Stores the B-Tree leaf nodes. */
+    leaves: Namespace,
+
+    /** Stores the B-Tree branch nodes. */
+    branches: Namespace,
+};
 
 enum ConfigKeys {
     RECORDS_ALLOCATOR_NUM_PAGES,
@@ -47,38 +61,41 @@ class GenericKvStore {
     private numTransactions = 0;
     private transactions = new LuaTable<TxId, Transaction>();
 
-    public constructor(coll: IStoreCollection<IPage, IPageStore<IPage>>) {
-        this.log = new RecordLog(coll.getStore(Namespaces.LOG as Namespace));
+    public constructor(
+        coll: IStoreCollection<IPage, IPageStore<IPage>>,
+        namespaces: KvStoreNamespaces,
+    ) {
+        this.log = new RecordLog(coll.getStore(namespaces.log as Namespace));
         const btree = new BTreeComponent(
             coll,
             new RecordsComponent(
                 coll,
                 new PageAllocatorComponent(
                     new ConfigEntryComponent(
-                            Namespaces.CONFIG as Namespace,
-                            ConfigKeys.RECORDS_ALLOCATOR_NUM_PAGES,
+                        namespaces.config,
+                        ConfigKeys.RECORDS_ALLOCATOR_NUM_PAGES,
                     ),
-                    Namespaces.PAGES as Namespace,
+                    namespaces.pages,
                 ),
-                Namespaces.HEADERS as Namespace,
+                namespaces.headers,
             ),
             new ConfigEntryComponent(
-                Namespaces.CONFIG as Namespace,
-                ConfigKeys.BTREE_ROOT as Namespace,
+                namespaces.config,
+                ConfigKeys.BTREE_ROOT,
             ),
             new PageAllocatorComponent(
                 new ConfigEntryComponent(
-                    Namespaces.CONFIG as Namespace,
+                    namespaces.config,
                     ConfigKeys.LEAVES_ALLOCATOR_NUM_PAGES,
                 ),
-                Namespaces.LEAVES as Namespace,
+                namespaces.leaves,
             ),
             new PageAllocatorComponent(
                 new ConfigEntryComponent(
-                    Namespaces.CONFIG as Namespace,
+                    namespaces.config,
                     ConfigKeys.BRANCHES_ALLOCATOR_NUM_PAGES,
                 ),
-                Namespaces.BRANCHES as Namespace,
+                namespaces.branches,
             ),
         );
 
@@ -86,6 +103,11 @@ class GenericKvStore {
         this.config = new SetEntryConfig(new CacheMap(32), btree);
         this.kvlm = new KvLockManager(btree);
         this.cl = new TxCollection(this.log, coll, this.config, 8, 32);
+    }
+
+    /** Returns the number of active transactions. */
+    public getNumTransactions(): number {
+        return this.numTransactions;
     }
 
     /** Rolls back all active transactions and closes the database. */
@@ -116,11 +138,43 @@ class GenericKvStore {
         this.transactions.set(txId, out);
         return out;
     }
+
+    /** Fetches the next entry greater-than or equal to a key. */
+    public rawNext(key: string): KvPair | undefined {
+        return this.config.btree.search(this.cl, key)[1];
+    }
 }
+
+const dirKvStoreNamespaces = {
+    log: 0 as Namespace,
+    config: 2 as Namespace,
+    headers: 4 as Namespace,
+    pages: 6 as Namespace,
+    leaves: 8 as Namespace,
+    branches: 10 as Namespace,
+};
+
+const dirKvStoreCowNamespaces = {
+    log: 1 as Namespace,
+    config: 3 as Namespace,
+    headers: 5 as Namespace,
+    pages: 7 as Namespace,
+    leaves: 9 as Namespace,
+    branches: 11 as Namespace,
+};
+
+const nsMap = new LuaMap<Namespace, Namespace>();
+nsMap.set(dirKvStoreNamespaces.log, dirKvStoreCowNamespaces.log);
+nsMap.set(dirKvStoreNamespaces.config, dirKvStoreCowNamespaces.config);
+nsMap.set(dirKvStoreNamespaces.headers, dirKvStoreCowNamespaces.headers);
+nsMap.set(dirKvStoreNamespaces.pages, dirKvStoreCowNamespaces.pages);
+nsMap.set(dirKvStoreNamespaces.leaves, dirKvStoreCowNamespaces.leaves);
+nsMap.set(dirKvStoreNamespaces.branches, dirKvStoreCowNamespaces.branches);
 
 export class DirKvStore {
     private lock: DirLock;
     private indexedColl: IndexedCollection;
+    private cowColl: CowCollection;
     private kvs?: GenericKvStore;
     private dataDirs: LuaMap<string, string>;
 
@@ -145,6 +199,9 @@ export class DirKvStore {
             loader,
         );
 
+        this.clearSnapshotColl();
+        this.cowColl = new CowCollection(this.indexedColl);
+
         for (const [name] of this.dataDirs) {
             if (!this.indexedColl.getSubstore(name)) {
                 this.dataDirs.delete(name);
@@ -168,6 +225,7 @@ export class DirKvStore {
 
     public delDataDir(dir: string) {
         this.indexedColl.delSubstore(this.getName(dir));
+        this.dataDirs.delete(this.getName(dir));
         fs.delete(dir);
     }
 
@@ -197,6 +255,10 @@ export class DirKvStore {
         return this.indexedColl.getQuota();
     }
 
+    public getNumTransactions(): number {
+        return this.kvs?.getNumTransactions() || 0;
+    }
+
     public getConfig(key: string): string | undefined {
         return this.indexedColl.getConfig(key);
     }
@@ -206,13 +268,44 @@ export class DirKvStore {
     }
 
     public open() {
-        this.kvs = new GenericKvStore(this.indexedColl);
+        this.kvs = new GenericKvStore(this.cowColl, dirKvStoreNamespaces);
     }
 
     public close(): void {
         this.kvs?.close();
         this.indexedColl.close();
         this.lock.release();
+    }
+
+    private clearSnapshotColl() {
+        for (const [_, namespace] of pairs(dirKvStoreCowNamespaces)) {
+            const store = this.indexedColl.getStore(namespace);
+            for (const pageNum of store.listPages()) {
+                store.getPage(pageNum).delete();
+            }
+        }
+    }
+
+    public openSnapshot(): GenericKvStore {
+        const map = new LuaMap<Namespace, IPageStore<IPage>>();
+        for (const [ns1, ns2] of nsMap) {
+            map.set(ns1, this.indexedColl.getStore(ns2));
+        }
+
+        const mapped = new MappedCollection(map);
+        const snapshot = this.cowColl.snapshot(mapped);
+        const out = new GenericKvStore(snapshot, dirKvStoreNamespaces);
+        return out;
+    }
+
+    public closeSnapshot(snapshot: GenericKvStore) {
+        snapshot.close();
+        this.cowColl.detach();
+        this.clearSnapshotColl();
+    }
+
+    public rawNext(key: string): KvPair | undefined {
+        return assert(this.kvs).rawNext(key);
     }
 
     public begin(): Transaction {
