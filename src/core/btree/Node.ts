@@ -410,59 +410,44 @@ export class BTreeComponent {
         return $multi(prev, next);
     }
 
-    /** Returns whether a to-be-inserted entry can fit in a leaf node. */
-    private fitsInLeaf(
-        cl: TxCollection,
-        leaf: LeafObj,
-        key: string,
-        value: string,
-    ): boolean {
-        const pageSize = cl.pageSize;
-        const freeSpace = pageSize - LEAF_OVERHEAD - leaf.usedSpace;
-        const keyHeadLen = this.vrc.getVidLength(key);
-        const valHeadLen = this.vrc.getVidLength(value);
-        return freeSpace >= keyHeadLen + valHeadLen;
-    }
-
-    /** Inserts an entry into a leaf page. Assumes there is room to fit. */
-    private insertLeafEntryNoOverflow(
-        cl: TxCollection,
-        leaf: TxPage<LeafObj, LeafEvent>,
-        key: string,
-        value: string,
-    ): string | undefined {
-        // This only fails if the caller was careless or if the page size is too
-        // small for regular operation.
-        assert(this.fitsInLeaf(cl, leaf.obj, key, value));
-
-        const [iLow, iHigh] = this.flankIndexes(cl, leaf.obj, key);
-        const valVid = this.vrc.allocate(cl, value);
-
-        if (iLow == iHigh) {
-            // The key already exists, update the value and exit.
-            const oldEntry = this.vrc.read(cl, leaf.obj.vals[iHigh]);
-            this.vrc.free(cl, leaf.obj.vals[iHigh]);
-            leaf.doEvent(new SetLeafEntryEvent(iHigh, valVid));
-            return oldEntry;
-        }
-
-        // Insert into the high index. This handles all edge cases already.
-        const keyVid = this.vrc.allocate(cl, key);
-        leaf.doEvent(new AddLeafEntryEvent(iHigh, valVid, keyVid));
-    }
-
     /** Inserts an entry into a leaf page. Also handles leaf overflow. */
-    private insertLeafEntryMayOverflow(
+    private insertLeafEntry(
         cl: TxCollection,
         leaf: TxPage<LeafObj, LeafEvent>,
         key: string,
         value: string,
     ): InsertionResult {
-        if (this.fitsInLeaf(cl, leaf.obj, key, value)) {
+        const [iLow, iHigh] = this.flankIndexes(cl, leaf.obj, key);
+
+        if (iLow == iHigh) {
+            // Key already exists. Replace the value.
+            const newValVid = this.vrc.allocate(cl, value);
+            const oldValVid = leaf.obj.vals[iHigh];
+            const oldVal = this.vrc.read(cl, oldValVid);
+            this.vrc.free(cl, oldValVid);
+            leaf.doEvent(new SetLeafEntryEvent(iHigh, newValVid));
             return {
-                oldVal: this.insertLeafEntryNoOverflow(cl, leaf, key, value),
+                oldVal,
+                split: this.splitLeafIfNeeded(cl, leaf),
+            };
+        } else {
+            // Key doesn't exist. Insert it.
+            // Insert into the high index. This handles all edge cases already.
+            const newKeyVid = this.vrc.allocate(cl, key);
+            const newValVid = this.vrc.allocate(cl, value);
+            leaf.doEvent(new AddLeafEntryEvent(iHigh, newValVid, newKeyVid));
+            return {
+                split: this.splitLeafIfNeeded(cl, leaf),
             };
         }
+    }
+
+    /** Splits a leaf roughly in the middle if it is overflowing. */
+    private splitLeafIfNeeded(
+        cl: TxCollection,
+        leaf: TxPage<LeafObj, LeafEvent>,
+    ): InsertionSplitOp | undefined {
+        if (leaf.obj.usedSpace + LEAF_OVERHEAD <= cl.pageSize) { return; }
 
         // Allocate a new node for splitting.
         const newLeaf = this.allocatedLeaves
@@ -501,25 +486,10 @@ export class BTreeComponent {
         const lKey = this.vrc.read(cl, leaf.obj.keys[leaf.obj.keys.length - 1]);
         const rKey = this.vrc.read(cl, newLeaf.obj.keys[0]);
         const splitKey = this.computeSeparator(lKey, rKey);
-        const split = {
+        return {
             nextNode: newLeaf.pageNum,
             splitKey: this.vrc.allocate(cl, splitKey),
         };
-
-        // Insert the element into one of the two nodes.
-        if (key < splitKey) {
-            // Left
-            return {
-                oldVal: this.insertLeafEntryNoOverflow(cl, leaf, key, value),
-                split,
-            };
-        } else {
-            // Right
-            return {
-                oldVal: this.insertLeafEntryNoOverflow(cl, newLeaf, key, value),
-                split,
-            };
-        }
     }
 
     /** Returns whether a to-be-inserted entry can fit in a branch node. */
@@ -535,16 +505,12 @@ export class BTreeComponent {
         return freeSpace >= keyHeadLen + childLen;
     }
 
-    /** Handles a branch split. Assumes there is enough room in the parent. */
-    private handleBranchSplitNoOverflow(
+    /** Handles a branch split. Also handles parent overflow. */
+    private handleBranchSplit(
         cl: TxCollection,
         branch: TxPage<BranchObj, BranchEvent>,
         msg: InsertionSplitOp,
-    ): undefined {
-        // This only fails if the caller was careless or if the page size is too
-        // small for regular operation.
-        assert(this.fitsInBranch(cl, branch.obj, msg.splitKey));
-
+    ): InsertionSplitOp | undefined {
         const splitKeyStr = this.vrc.read(cl, msg.splitKey);
         const [_, iHigh] = this.flankIndexes(cl, branch.obj, splitKeyStr);
 
@@ -555,17 +521,16 @@ export class BTreeComponent {
             msg.splitKey,
             WithChild.RIGHT,
         ));
+
+        return this.splitBranchIfNeeded(cl, branch);
     }
 
-    /** Handles a branch split and handles parent overflow. */
-    private handleBranchSplitMayOverflow(
+    /** Splits a branch roughly in the middle if it is overflowing. */
+    private splitBranchIfNeeded(
         cl: TxCollection,
         branch: TxPage<BranchObj, BranchEvent>,
-        msg: InsertionSplitOp,
     ): InsertionSplitOp | undefined {
-        if (this.fitsInBranch(cl, branch.obj, msg.splitKey)) {
-            return this.handleBranchSplitNoOverflow(cl, branch, msg);
-        }
+        if (branch.obj.usedSpace + BRANCH_OVERHEAD <= cl.pageSize) { return; }
 
         // Get the split key which will be bubbled up to the parent.
         const splitIdx = branch.obj.getSplitIndex();
@@ -596,16 +561,6 @@ export class BTreeComponent {
             branch.doEvent(new DelBranchKeyEvent(i, WithChild.RIGHT));
         }
 
-        // Insert the element into one of the two nodes.
-        const msgSplitKeyStr = this.vrc.read(cl, msg.splitKey);
-        if (this.vrc.cmp(cl, msgSplitKeyStr, splitKey) < 0) {
-            // Left
-            this.handleBranchSplitNoOverflow(cl, branch, msg);
-        } else {
-            // Right
-            this.handleBranchSplitNoOverflow(cl, newBranch, msg);
-        }
-
         return {
             nextNode: newBranch.pageNum,
             splitKey,
@@ -626,7 +581,7 @@ export class BTreeComponent {
         parent: TxPage<NodeObj, NodeEvent>,
     ): InsertionResult {
         if (parent.obj.type == "leaf") {
-            return this.insertLeafEntryMayOverflow(
+            return this.insertLeafEntry(
                 cl,
                 parent as TxPage<LeafObj, LeafEvent>,
                 key,
@@ -649,7 +604,7 @@ export class BTreeComponent {
         if (!result.split) { return result; }
         return {
             oldVal: result.oldVal,
-            split: this.handleBranchSplitMayOverflow(
+            split: this.handleBranchSplit(
                 cl,
                 parent as TxPage<BranchObj, BranchEvent>,
                 result.split,

@@ -199,8 +199,8 @@ export class LeafObj implements IObj<LeafEvent> {
 
     public apply(event: LeafEvent): void {
         if (event.ty == LeafEventType.ADD_ENTRY) {
-            this.vals.splice(event.pos, 0, event.value);
-            this.keys.splice(event.pos, 0, event.key);
+            table.insert(this.vals, event.pos + 1, event.value);
+            table.insert(this.keys, event.pos + 1, event.key);
             this.usedSpace += event.value.length() + event.key.length();
         } else if (event.ty == LeafEventType.SET_LINKS) {
             this.prev = event.prev;
@@ -208,10 +208,12 @@ export class LeafObj implements IObj<LeafEvent> {
         } else if (event.ty == LeafEventType.SET_ENTRY) {
             assert(this.keys[event.pos], "can't set a non-existant entry");
             this.vals[event.pos] = event.value;
-        } else {
+        } else if (event.ty == LeafEventType.DEL_ENTRY) {
             assert(this.keys[event.pos], "can't delete a non-existant entry");
-            this.usedSpace -= this.vals.splice(event.pos, 1)[0].length();
-            this.usedSpace -= this.keys.splice(event.pos, 1)[0].length();
+            this.usedSpace -= table.remove(this.vals, event.pos + 1)!.length();
+            this.usedSpace -= table.remove(this.keys, event.pos + 1)!.length();
+        } else {
+            event satisfies never;
         }
     }
 

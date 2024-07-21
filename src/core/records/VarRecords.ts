@@ -100,11 +100,6 @@ export class VarRecordsComponent {
         return this.records.deserializeEv(n, s);
     }
 
-    /** Returns the byte size taken by a VID pointing to a record. */
-    public getVidLength(record: string): number {
-        return math.min(VID_LENGTH_BYTES + record.length, this.maxVidLen);
-    }
-
     /** Allocates a record. */
     public allocate(collection: TxCollection, record: string): VarRecordId {
         const maxDirectLen = this.maxVidLen - VID_LENGTH_BYTES;
