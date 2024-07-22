@@ -1,6 +1,10 @@
 import { NO_LINK } from "../records/RecordPage";
 import { RECORD_ID_BYTES } from "../records/Records";
-import { VarRecordId, VarRecordsComponent } from "../records/VarRecords";
+import {
+    IncrVarRecordId,
+    VarRecordId,
+    VarRecordsComponent,
+} from "../records/VarRecords";
 import { PageNum, PAGE_LINK_BYTES } from "../store/IPageStore";
 import { PAGE_FMT } from "../txStore/LogRecord/types";
 import { IEvent, IObj } from "../txStore/LogStore";
@@ -146,7 +150,7 @@ export class LeafObj implements IObj<LeafEvent> {
     public readonly height = 0;
 
     /** Key records for stored entries. */
-    public keys: VarRecordId[];
+    public keys: IncrVarRecordId[];
 
     /** Value records for stored entries, one for each key. */
     public vals: VarRecordId[];
@@ -167,7 +171,7 @@ export class LeafObj implements IObj<LeafEvent> {
 
     public constructor(
         vals: VarRecordId[],
-        keys: VarRecordId[],
+        keys: IncrVarRecordId[],
         prev?: PageNum,
         next?: PageNum,
     ) {
@@ -200,8 +204,12 @@ export class LeafObj implements IObj<LeafEvent> {
     public apply(event: LeafEvent): void {
         if (event.ty == LeafEventType.ADD_ENTRY) {
             table.insert(this.vals, event.pos + 1, event.value);
-            table.insert(this.keys, event.pos + 1, event.key);
-            this.usedSpace += event.value.length() + event.key.length();
+            const prev = this.keys[event.pos - 1];
+            const next = this.keys[event.pos + 1];
+            const key = event.key.toIncr(prev?.str || "");
+            next?.setPrev(key.str);
+            table.insert(this.keys, event.pos + 1, key);
+            this.usedSpace += event.value.length() + key.length();
         } else if (event.ty == LeafEventType.SET_LINKS) {
             this.prev = event.prev;
             this.next = event.next;
@@ -210,6 +218,9 @@ export class LeafObj implements IObj<LeafEvent> {
             this.vals[event.pos] = event.value;
         } else if (event.ty == LeafEventType.DEL_ENTRY) {
             assert(this.keys[event.pos], "can't delete a non-existant entry");
+            const prev = this.keys[event.pos - 1];
+            const next = this.keys[event.pos + 1];
+            next?.setPrev(prev?.str || "");
             this.usedSpace -= table.remove(this.vals, event.pos + 1)!.length();
             this.usedSpace -= table.remove(this.keys, event.pos + 1)!.length();
         } else {
@@ -250,11 +261,13 @@ export function deserializeLeafObj(str?: string): LeafObj {
         pos = nextPos;
     }
 
-    const keys = <VarRecordId[]>[];
+    let prevStr = "";
+    const keys = <IncrVarRecordId[]>[];
     for (const _ of $range(1, keysLength)) {
-        const [key, nextPos] = VarRecordId.deserialize(str, pos);
+        const [key, nextPos] = IncrVarRecordId.deserialize(str, pos, prevStr);
         keys.push(key);
         pos = nextPos;
+        prevStr = key.str;
     }
 
     return new LeafObj(

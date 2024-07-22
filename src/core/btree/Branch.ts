@@ -1,4 +1,8 @@
-import { VarRecordId, VarRecordsComponent } from "../records/VarRecords";
+import {
+    IncrVarRecordId,
+    VarRecordId,
+    VarRecordsComponent,
+} from "../records/VarRecords";
 import { PAGE_LINK_BYTES, PageNum } from "../store/IPageStore";
 import { PAGE_FMT } from "../txStore/LogRecord/types";
 import { IEvent, IObj } from "../txStore/LogStore";
@@ -172,10 +176,10 @@ export class BranchObj implements IObj<BranchEvent> {
     public readonly type = "branch";
     public height: number;
     public children: PageNum[];
-    public keys: VarRecordId[];
+    public keys: IncrVarRecordId[];
     public usedSpace: number;
 
-    public constructor(height: number, vals: PageNum[], keys: VarRecordId[]) {
+    public constructor(height: number, vals: PageNum[], keys: IncrVarRecordId[]) {
         this.height = height;
         this.children = vals;
         this.keys = keys;
@@ -201,28 +205,46 @@ export class BranchObj implements IObj<BranchEvent> {
 
     public apply(event: BranchEvent): void {
         if (event.ty == BranchEventType.ADD_LKEY) {
-            this.children.splice(event.pos, 0, event.child);
-            this.keys.splice(event.pos, 0, event.key);
-            this.usedSpace += PAGE_LINK_BYTES + event.key.length();
+            const prev = this.keys[event.pos - 1];
+            const next = this.keys[event.pos + 1];
+            const key = event.key.toIncr(prev?.str || "");
+            next?.setPrev(key.str);
+            table.insert(this.children, event.pos + 1, event.child);
+            table.insert(this.keys, event.pos + 1, key);
+            this.usedSpace += PAGE_LINK_BYTES + key.length();
         } else if (event.ty == BranchEventType.ADD_RKEY) {
-            this.children.splice(event.pos + 1, 0, event.child);
-            this.keys.splice(event.pos, 0, event.key);
-            this.usedSpace += PAGE_LINK_BYTES + event.key.length();
+            const prev = this.keys[event.pos - 1];
+            const next = this.keys[event.pos + 1];
+            const key = event.key.toIncr(prev?.str || "");
+            next?.setPrev(key.str);
+            table.insert(this.children, event.pos + 2, event.child);
+            table.insert(this.keys, event.pos + 1, key);
+            this.usedSpace += PAGE_LINK_BYTES + key.length();
         } else if (event.ty == BranchEventType.DEL_LKEY) {
-            this.children.splice(event.pos, 1);
+            table.remove(this.children, event.pos + 1);
             this.usedSpace -= PAGE_LINK_BYTES;
-            this.usedSpace -= this.keys.splice(event.pos, 1)[0].length();
+            const prev = this.keys[event.pos - 1];
+            const next = this.keys[event.pos + 1];
+            next?.setPrev(prev?.str || "");
+            this.usedSpace -= table.remove(this.keys, event.pos + 1)!.length();
         } else if (event.ty == BranchEventType.DEL_RKEY) {
-            this.children.splice(event.pos + 1, 1);
+            table.remove(this.children, event.pos + 2);
             this.usedSpace -= PAGE_LINK_BYTES;
-            this.usedSpace -= this.keys.splice(event.pos, 1)[0].length();
+            const prev = this.keys[event.pos - 1];
+            const next = this.keys[event.pos + 1];
+            next?.setPrev(prev?.str || "");
+            this.usedSpace -= table.remove(this.keys, event.pos + 1)!.length();
         } else if (event.ty == BranchEventType.INIT) {
             assert(this.isEmpty(), "can't init a node twice");
             this.height = event.height;
             this.children[0] = event.child;
         } else if (event.ty == BranchEventType.SET_KEY) {
             assert(this.keys[event.pos], "can't set an out-of-range key");
-            this.keys[event.pos] = event.key;
+            const prev = this.keys[event.pos - 1];
+            const next = this.keys[event.pos + 1];
+            const key = event.key.toIncr(prev?.str || "");
+            next?.setPrev(key.str);
+            this.keys[event.pos] = key;
         } else {
             const isUnary = this.children.length == 1 && this.keys.length == 0;
             assert(isUnary, "can't deinit a node with more than 1 value");
@@ -254,11 +276,13 @@ export function deserializeBranchObj(str?: string): BranchObj {
     const vals = string.unpack("<" + string.rep(PAGE_FMT, valsLength), str, a1);
     let pos = vals.pop();
 
+    let prevStr = "";
     const keys = [];
     for (const _ of $range(1, keysLength)) {
-        const [key, nextPos] = VarRecordId.deserialize(str, pos);
+        const [key, nextPos] = IncrVarRecordId.deserialize(str, pos, prevStr);
         keys.push(key);
         pos = nextPos;
+        prevStr = key.str;
     }
 
     return new BranchObj(height, vals, keys);

@@ -459,7 +459,7 @@ export class BTreeComponent {
             newLeaf.doEvent(new AddLeafEntryEvent(
                 i - splitIdx,
                 leaf.obj.vals[i],
-                leaf.obj.keys[i],
+                leaf.obj.keys[i].toVid(),
             ));
         }
 
@@ -551,7 +551,7 @@ export class BTreeComponent {
             newBranch.doEvent(new AddBranchKeyEvent(
                 i - (splitIdx + 1),
                 branch.obj.children[i + 1],
-                branch.obj.keys[i],
+                branch.obj.keys[i].toVid(),
                 WithChild.RIGHT,
             ));
         }
@@ -563,7 +563,7 @@ export class BTreeComponent {
 
         return {
             nextNode: newBranch.pageNum,
-            splitKey,
+            splitKey: splitKey.toVid(),
         };
     }
 
@@ -642,7 +642,7 @@ export class BTreeComponent {
 
         // Insert the split key and right child.
         newRoot.doEvent(new AddBranchKeyEvent(
-            1,
+            0,
             result.split.nextNode,
             result.split.splitKey,
             WithChild.RIGHT,
@@ -665,14 +665,14 @@ export class BTreeComponent {
 
         if (childIndex != 0) {
             out.left = {
-                splitKey: parent.keys[childIndex - 1],
+                splitKey: parent.keys[childIndex - 1].toVid(),
                 node: parent.children[childIndex - 1],
             };
         }
 
         if (childIndex != parent.children.length - 1) {
             out.right = {
-                splitKey: parent.keys[childIndex],
+                splitKey: parent.keys[childIndex].toVid(),
                 node: parent.children[childIndex + 1],
             };
         }
@@ -691,7 +691,7 @@ export class BTreeComponent {
             left.doEvent(new AddLeafEntryEvent(
                 left.obj.keys.length,
                 right.obj.vals[i],
-                right.obj.keys[i],
+                right.obj.keys[i].toVid(),
             ));
         }
 
@@ -745,7 +745,7 @@ export class BTreeComponent {
             leaf.doEvent(new AddLeafEntryEvent(
                 0,
                 lSibling.obj.vals[lSibling.obj.keys.length - 1],
-                lSibling.obj.keys[lSibling.obj.keys.length - 1],
+                lSibling.obj.keys[lSibling.obj.keys.length - 1].toVid(),
             ));
             lSibling.doEvent(new DelLeafEntryEvent(
                 lSibling.obj.keys.length - 1,
@@ -773,7 +773,7 @@ export class BTreeComponent {
             leaf.doEvent(new AddLeafEntryEvent(
                 leaf.obj.keys.length,
                 rSibling.obj.vals[0],
-                rSibling.obj.keys[0],
+                rSibling.obj.keys[0].toVid(),
             ));
             rSibling.doEvent(new DelLeafEntryEvent(0));
             const splitKey = this.vrc.allocate(cl, this.computeSeparator(
@@ -837,7 +837,7 @@ export class BTreeComponent {
             left.doEvent(new AddBranchKeyEvent(
                 left.obj.keys.length,
                 right.obj.children[i + 1],
-                right.obj.keys[i],
+                right.obj.keys[i].toVid(),
                 WithChild.RIGHT,
             ));
         }
@@ -902,7 +902,7 @@ export class BTreeComponent {
             return {
                 ty: DeletionResultTy.REASSIGN,
                 with: SiblingPos.LEFT,
-                newSplitKey,
+                newSplitKey: newSplitKey.toVid(),
             };
         }
 
@@ -923,7 +923,7 @@ export class BTreeComponent {
             return {
                 ty: DeletionResultTy.REASSIGN,
                 with: SiblingPos.RIGHT,
-                newSplitKey,
+                newSplitKey: newSplitKey.toVid(),
             };
         }
 

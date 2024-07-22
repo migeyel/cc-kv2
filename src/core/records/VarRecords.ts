@@ -6,6 +6,18 @@ const VID_LENGTH_BYTES = 2;
 const VID_LEN_FMT = "<I" + VID_LENGTH_BYTES;
 const MAX_VID_PREFIX_LENGTH = 256 ** VID_LENGTH_BYTES / 2 - 1;
 
+const CPL_LENGTH_BYTES = 1;
+const CPLVID_LENGTH_BYTES = CPL_LENGTH_BYTES + VID_LENGTH_BYTES;
+const IVID_FMT = "<I" + CPL_LENGTH_BYTES + "I" + VID_LENGTH_BYTES;
+const MAX_CPL = 256 ** CPL_LENGTH_BYTES - 1;
+
+function computeCpl(a: string, b: string): number {
+    const t = string.byte(a, 1, MAX_CPL);
+    const u = string.byte(b, 1, MAX_CPL);
+    for (const i of $range(1, a.length)) { if (t[i - 1] != u[i - 1]) return i - 1; }
+    return a.length;
+}
+
 /**
  * An id referring to a var record.
  *
@@ -36,6 +48,10 @@ export class VarRecordId {
         }
     }
 
+    public toIncr(prev: string): IncrVarRecordId {
+        return new IncrVarRecordId(computeCpl(this.str, prev), this.str, this.rid);
+    }
+
     public static deserialize(
         str: string,
         pos = 1,
@@ -60,6 +76,72 @@ export class VarRecordId {
             return VID_LENGTH_BYTES + this.str.length + RECORD_ID_BYTES;
         } else {
             return VID_LENGTH_BYTES + this.str.length;
+        }
+    }
+}
+
+/** A var record ID stored using incremental coding. */
+export class IncrVarRecordId {
+    /** The common prefix length with the previous direct prefix. */
+    private cpl: number;
+
+    /** The full direct prefix. */
+    public readonly str: string;
+
+    /** A reference the rest of the record. */
+    public readonly rid?: RecordId;
+
+    public constructor(cpl: number, str: string, rid?: RecordId) {
+        this.cpl = cpl;
+        this.str = str;
+        this.rid = rid;
+    }
+
+    public serialize(): string {
+        if (this.rid) {
+            const lenf = 2 * (this.str.length - this.cpl) + 1;
+            return string.pack(IVID_FMT, this.cpl, lenf) +
+                string.sub(this.str, this.cpl + 1) +
+                this.rid.serialize();
+        } else {
+            const lenf = 2 * (this.str.length - this.cpl);
+            return string.pack(IVID_FMT, this.cpl, lenf) +
+                string.sub(this.str, this.cpl + 1);
+        }
+    }
+
+    public toVid(): VarRecordId {
+        return new VarRecordId(this.str, this.rid);
+    }
+
+    public setPrev(prev: string) {
+        this.cpl = computeCpl(this.str, prev);
+    }
+
+    public static deserialize(
+        str: string,
+        pos = 1,
+        prev: string,
+    ): LuaMultiReturn<[IncrVarRecordId, number]> {
+        const [cpl, lenf, dstrStart] = string.unpack(IVID_FMT, str, pos);
+        const flag = lenf % 2;
+        const len = (lenf - flag) / 2;
+        const dstrEnd = dstrStart + len - 1;
+        const dstr = string.sub(prev, 1, cpl) + string.sub(str, dstrStart, dstrEnd);
+        const pos2 = dstrEnd + 1;
+        if (flag == 0) {
+            return $multi(new IncrVarRecordId(cpl, dstr), pos2);
+        } else {
+            const [rid, pos3] = RecordId.deserialize(str, pos2);
+            return $multi(new IncrVarRecordId(cpl, dstr, rid), pos3);
+        }
+    }
+
+    public length(): number {
+        if (this.rid) {
+            return CPLVID_LENGTH_BYTES + this.str.length + RECORD_ID_BYTES;
+        } else {
+            return CPLVID_LENGTH_BYTES + this.str.length;
         }
     }
 }
@@ -102,7 +184,7 @@ export class VarRecordsComponent {
 
     /** Allocates a record. */
     public allocate(collection: TxCollection, record: string): VarRecordId {
-        const maxDirectLen = this.maxVidLen - VID_LENGTH_BYTES;
+        const maxDirectLen = this.maxVidLen - CPLVID_LENGTH_BYTES;
         if (record.length <= maxDirectLen) {
             // Put everything directly into the VID.
             return new VarRecordId(record);
@@ -134,7 +216,7 @@ export class VarRecordsComponent {
     }
 
     /** Deallocates a record. */
-    public free(collection: TxCollection, vid: VarRecordId): void {
+    public free(collection: TxCollection, vid: VarRecordId | IncrVarRecordId): void {
         let rid = vid.rid;
         while (rid) {
             const rstr = assert(this.records.getRecord(collection, rid));
@@ -150,7 +232,7 @@ export class VarRecordsComponent {
     /** Iterates through the record's sub-record strings. */
     public iter(
         collection: TxCollection,
-        vid: VarRecordId,
+        vid: VarRecordId | IncrVarRecordId,
     ): LuaIterable<string> {
         let rid: RecordId | undefined;
         // @ts-expect-error: This works fine they just don't like it.
@@ -183,7 +265,7 @@ export class VarRecordsComponent {
     public cmp(
         collection: TxCollection,
         str: string,
-        vid: VarRecordId,
+        vid: VarRecordId | IncrVarRecordId,
     ): -1 | 0 | 1 {
         for (const slice2 of this.iter(collection, vid)) {
             const slice1 = string.sub(str, 1, slice2.length);
@@ -205,7 +287,7 @@ export class VarRecordsComponent {
     }
 
     /** Reads the record and returns it as a string. */
-    public read(collection: TxCollection, vid: VarRecordId): string {
+    public read(collection: TxCollection, vid: VarRecordId | IncrVarRecordId): string {
         const out = [];
         for (const s of this.iter(collection, vid)) { out.push(s); }
         return table.concat(out);
